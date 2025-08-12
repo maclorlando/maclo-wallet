@@ -18,7 +18,7 @@ class RequestManager {
   private requestTimestamps: { [key: string]: number[] } = {};
   private pendingRequests: { [key: string]: Promise<unknown> } = {};
   private defaultRateLimit: RateLimitConfig = { maxRequests: 10, timeWindow: 1000 }; // 10 requests per second
-  private imageRateLimit: RateLimitConfig = { maxRequests: 5, timeWindow: 2000 }; // 5 requests per 2 seconds for images
+  private imageRateLimit: RateLimitConfig = { maxRequests: 3, timeWindow: 3000 }; // 3 requests per 3 seconds for images
 
   // Check if request is within rate limit
   private isRateLimited(key: string, config: RateLimitConfig): boolean {
@@ -232,24 +232,30 @@ class RequestManager {
       `https://cryptologos.cc/logos/${symbol.toLowerCase()}-${symbol.toLowerCase()}-logo.png`,
     ];
 
-    // Try each source with a short timeout
+    // Try each source with rate limiting and caching
     for (const source of sources) {
       try {
-        const exists = await this.checkImageExists(source);
-        if (exists) {
-          // Cache the successful URL
-          this.cacheResponse(cacheKey, source, 3600000); // 1 hour cache for image URLs
-          return source;
-        }
+        // Use rate-limited request for image checking
+        await this.request<Response>(source, { method: 'HEAD' }, {
+          rateLimit: this.imageRateLimit,
+          cacheKey: `image-check-${source}`,
+          ttl: 300000, // 5 minutes cache for image checks
+          retries: 0, // No retries for image checks
+          timeout: 3000 // 3 second timeout
+        });
+        
+        // If we get here, the image exists
+        this.cacheResponse(cacheKey, source, 3600000); // 1 hour cache for image URLs
+        return source;
       } catch (error) {
         console.log(`Failed to check image at ${source}:`, error);
         continue;
       }
     }
 
-    // Return default image if all sources fail
+    // Return default image if all sources fail and cache the failure for longer
     const defaultImage = 'https://cryptologos.cc/logos/ethereum-eth-logo.png';
-    this.cacheResponse(cacheKey, defaultImage, 3600000);
+    this.cacheResponse(cacheKey, defaultImage, 7200000); // Cache failure for 2 hours
     return defaultImage;
   }
 

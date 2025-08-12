@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 import { useWallet } from '@/lib/walletContext';
+import SafeImage from './SafeImage';
 import { buildAndSendRawTx, WalletConfig } from '@/lib/walletUtils';
 import { BASE_SEPOLIA_CONFIG } from '@/lib/walletManager';
 import { 
@@ -119,26 +119,19 @@ export default function TokenSwap({ isOpen, onClose }: TokenSwapProps) {
                     <div className="text-center">
                       <div className="h-8 w-8 rounded-full flex items-center justify-center mx-auto mb-2 overflow-hidden bg-gray-100">
                         {token.logoURI ? (
-                          <Image 
+                          <SafeImage 
                             src={token.logoURI} 
                             alt={token.symbol}
                             width={32}
                             height={32}
-                            className="h-8 w-8 object-cover"
-                            onError={(e) => {
-                              // Handle error by showing fallback
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = 'none';
-                              const fallback = target.nextElementSibling as HTMLElement;
-                              if (fallback) {
-                                fallback.classList.remove('hidden');
-                              }
-                            }}
+                            className="h-8 w-8 object-cover rounded-full"
+                            fallbackText={token.symbol}
                           />
-                        ) : null}
-                        <div className={`h-8 w-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center ${token.logoURI ? 'hidden' : ''}`}>
-                          <span className="text-white text-xs font-bold">{token.symbol}</span>
-                        </div>
+                        ) : (
+                          <div className="h-8 w-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">{token.symbol}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="text-sm font-medium text-gray-900">{token.symbol}</div>
                       <div className="text-xs text-gray-500">{token.name}</div>

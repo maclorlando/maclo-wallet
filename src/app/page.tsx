@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
 import { useWallet } from '@/lib/walletContext';
+import SafeImage from '@/components/SafeImage';
 import { 
   generateNewWallet, 
   importWalletFromMnemonic, 
@@ -96,7 +96,7 @@ export default function Home() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
 
   // Add alert function
-  const addAlert = (type: 'success' | 'error' | 'info', message: string) => {
+  const addAlert = useCallback((type: 'success' | 'error' | 'info', message: string) => {
     const id = Date.now().toString();
     const newAlert = { id, type, message };
     setAlerts(prev => [...prev, newAlert]);
@@ -105,7 +105,7 @@ export default function Home() {
     setTimeout(() => {
       removeAlert(id);
     }, 5000);
-  };
+  }, []);
 
   // Remove alert function
   const removeAlert = (id: string) => {
@@ -137,7 +137,7 @@ export default function Home() {
   };
 
   // Get token balance with rate limiting and graceful failure
-  const getTokenBalance = async (address: string, decimals: number): Promise<string> => {
+  const getTokenBalance = useCallback(async (address: string, decimals: number): Promise<string> => {
     try {
       const data = await requestManager.request<{
         error?: { message: string };
@@ -174,7 +174,7 @@ export default function Home() {
       console.error('Error fetching token balance:', error);
       return '0.000000';
     }
-  };
+  }, [currentNetworkConfig.rpcUrl, currentWallet?.address, currentNetwork]);
 
   // Famous tokens for autocomplete (network-specific)
   const getFamousTokens = () => {
@@ -242,51 +242,56 @@ export default function Home() {
       const prices = await getTokenPrices();
       setEthUsdValue(Number(ethBalance) * prices.eth);
 
-      // Get token balances
-      const balances: TokenBalance[] = [];
-      
-      for (const token of customTokens) {
-        if (token.address === '0x0000000000000000000000000000000000000000') {
-          // ETH balance - use default image immediately
-          balances.push({
-            symbol: 'ETH',
-            name: 'Ethereum',
-            address: token.address,
-            balance: ethBalance,
-            usdValue: Number(ethBalance) * prices.eth,
-            decimals: 18,
-            imageUrl: 'https://cryptologos.cc/logos/ethereum-eth-logo.png'
-          });
-        } else {
-          // Token balance
-          const balance = await getTokenBalance(token.address, token.decimals);
-          const usdValue = token.symbol === 'USDC' ? Number(balance) * prices.usdc :
-                          token.symbol === 'USDT' ? Number(balance) * prices.usdt : 0;
-          
-          // Use existing logoURI if available, otherwise fetch image
-          let imageUrl = token.logoURI;
-          if (!imageUrl) {
-            try {
-              imageUrl = await getTokenImage(token.symbol, token.address);
-            } catch (error) {
-              console.log(`Failed to fetch image for ${token.symbol}:`, error);
-              imageUrl = 'https://cryptologos.cc/logos/ethereum-eth-logo.png'; // fallback
+      // Only fetch token balances if there are custom tokens
+      if (customTokens.length > 0) {
+        const balances: TokenBalance[] = [];
+        
+        for (const token of customTokens) {
+          if (token.address === '0x0000000000000000000000000000000000000000') {
+            // ETH balance - use default image immediately
+            balances.push({
+              symbol: 'ETH',
+              name: 'Ethereum',
+              address: token.address,
+              balance: ethBalance,
+              usdValue: Number(ethBalance) * prices.eth,
+              decimals: 18,
+              imageUrl: 'https://cryptologos.cc/logos/ethereum-eth-logo.png'
+            });
+          } else {
+            // Token balance
+            const balance = await getTokenBalance(token.address, token.decimals);
+            const usdValue = token.symbol === 'USDC' ? Number(balance) * prices.usdc :
+                            token.symbol === 'USDT' ? Number(balance) * prices.usdt : 0;
+            
+            // Use existing logoURI if available, otherwise fetch image
+            let imageUrl = token.logoURI;
+            if (!imageUrl) {
+              try {
+                imageUrl = await getTokenImage(token.symbol, token.address);
+              } catch (error) {
+                console.log(`Failed to fetch image for ${token.symbol}:`, error);
+                imageUrl = 'https://cryptologos.cc/logos/ethereum-eth-logo.png'; // fallback
+              }
             }
+            
+            balances.push({
+              symbol: token.symbol,
+              name: token.name,
+              address: token.address,
+              balance,
+              usdValue,
+              decimals: token.decimals,
+              imageUrl: imageUrl
+            });
           }
-          
-          balances.push({
-            symbol: token.symbol,
-            name: token.name,
-            address: token.address,
-            balance,
-            usdValue,
-            decimals: token.decimals,
-            imageUrl: imageUrl
-          });
         }
-      }
 
-      setTokenBalances(balances);
+        setTokenBalances(balances);
+      } else {
+        // Clear token balances if no custom tokens
+        setTokenBalances([]);
+      }
     } catch (error) {
       console.error('Error fetching balances:', error);
       addAlert('error', 'Failed to fetch balances');
@@ -909,29 +914,22 @@ export default function Home() {
                           <tr key={index} className="hover:bg-gray-50 transition-colors">
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex items-center">
-                                <div className="h-8 w-8 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-100">
-                                  {token.imageUrl ? (
-                                    <Image 
-                                      src={token.imageUrl} 
-                                      alt={token.symbol}
-                                      width={32}
-                                      height={32}
-                                      className="h-8 w-8 object-cover"
-                                      onError={(e) => {
-                                        // Handle error by showing fallback
-                                        const target = e.target as HTMLImageElement;
-                                        target.style.display = 'none';
-                                        const fallback = target.nextElementSibling as HTMLElement;
-                                        if (fallback) {
-                                          fallback.classList.remove('hidden');
-                                        }
-                                      }}
-                                    />
-                                  ) : null}
-                                  <div className={`h-8 w-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center ${token.imageUrl ? 'hidden' : ''}`}>
+                                                              <div className="h-8 w-8 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-100">
+                                {token.imageUrl ? (
+                                  <SafeImage 
+                                    src={token.imageUrl} 
+                                    alt={token.symbol}
+                                    width={32}
+                                    height={32}
+                                    className="h-8 w-8 object-cover rounded-full"
+                                    fallbackText={token.symbol}
+                                  />
+                                ) : (
+                                  <div className="h-8 w-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
                                     <span className="text-white text-xs font-bold">{token.symbol}</span>
                                   </div>
-                                </div>
+                                )}
+                              </div>
                                 <div>
                                   <div className="text-sm font-medium text-gray-900">{token.symbol}</div>
                                   <div className="text-sm text-gray-500">{token.name}</div>
@@ -993,28 +991,21 @@ export default function Home() {
                           onClick={() => handleTokenSuggestionClick(token)}
                           className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm text-gray-900 border-b border-gray-100 last:border-b-0 flex items-center"
                         >
-                          <div className="h-6 w-6 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-100">
+                                                    <div className="h-6 w-6 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-100">
                             {token.logoURI ? (
-                                                          <Image 
-                              src={token.logoURI} 
-                              alt={token.symbol}
-                              width={24}
-                              height={24}
-                              className="h-6 w-6 object-cover"
-                              onError={(e) => {
-                                // Handle error by showing fallback
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                const fallback = target.nextElementSibling as HTMLElement;
-                                if (fallback) {
-                                  fallback.classList.remove('hidden');
-                                }
-                              }}
-                            />
-                            ) : null}
-                            <div className={`h-6 w-6 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center ${token.logoURI ? 'hidden' : ''}`}>
-                              <span className="text-white text-xs font-bold">{token.symbol}</span>
-                            </div>
+                              <SafeImage 
+                                src={token.logoURI} 
+                                alt={token.symbol}
+                                width={24}
+                                height={24}
+                                className="h-6 w-6 object-cover rounded-full"
+                                fallbackText={token.symbol}
+                              />
+                            ) : (
+                              <div className="h-6 w-6 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
+                                <span className="text-white text-xs font-bold">{token.symbol}</span>
+                              </div>
+                            )}
                           </div>
                           <div className="flex-1">
                             <div className="font-medium">{token.symbol}</div>
