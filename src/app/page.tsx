@@ -1,25 +1,21 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { useWallet } from '@/lib/walletContext';
 import { 
   generateNewWallet, 
   importWalletFromMnemonic, 
   encryptMnemonic, 
-  decryptMnemonic, 
   storeEncryptedWallet, 
-  getStoredWallets, 
-  removeStoredWallet, 
   addCustomToken, 
   removeCustomToken, 
-  getCustomTokens, 
   getEthBalance,
   getTokenImage,
   TokenInfoWithImage,
   recoverWallet
 } from '@/lib/walletManager';
 import SendTransaction from '@/components/SendTransaction';
-import TokenSwap from '@/components/TokenSwap';
 import NetworkSwitcher from '@/components/NetworkSwitcher';
 import { 
   WalletIcon, 
@@ -50,6 +46,12 @@ interface Alert {
   message: string;
 }
 
+interface NewWalletData {
+  address: string;
+  mnemonic: string;
+  privateKey: string;
+}
+
 export default function Home() {
   const { 
     currentWallet, 
@@ -68,10 +70,9 @@ export default function Home() {
   const [showRecoverWallet, setShowRecoverWallet] = useState(false);
   const [showAddToken, setShowAddToken] = useState(false);
   const [showSendTransaction, setShowSendTransaction] = useState(false);
-  const [showTokenSwap, setShowTokenSwap] = useState(false);
   const [showMnemonic, setShowMnemonic] = useState(false);
   
-  const [newWalletData, setNewWalletData] = useState<any>(null);
+  const [newWalletData, setNewWalletData] = useState<NewWalletData | null>(null);
   const [password, setPassword] = useState('');
   const [mnemonic, setMnemonic] = useState('');
   const [recoverAddress, setRecoverAddress] = useState('');
@@ -89,7 +90,6 @@ export default function Home() {
   const [ethBalance, setEthBalance] = useState<string>('0.000000');
   const [ethUsdValue, setEthUsdValue] = useState<number>(0);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
-  const [isLoadingTokens, setIsLoadingTokens] = useState(false);
 
   // Alerts system
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -205,13 +205,12 @@ export default function Home() {
   const [showTokenSuggestions, setShowTokenSuggestions] = useState(false);
 
   // Fetch all balances
-  const fetchAllBalances = async () => {
+  const fetchAllBalances = useCallback(async () => {
     if (!currentWallet?.address) return;
 
     console.log('Fetching balances for network:', currentNetwork, 'RPC URL:', currentNetworkConfig.rpcUrl);
 
     setIsLoadingBalance(true);
-    setIsLoadingTokens(true);
 
     try {
       // Get ETH balance
@@ -266,9 +265,8 @@ export default function Home() {
       addAlert('error', 'Failed to fetch balances');
     } finally {
       setIsLoadingBalance(false);
-      setIsLoadingTokens(false);
     }
-  };
+  }, [currentWallet, currentNetwork, currentNetworkConfig, customTokens, addAlert, getTokenBalance]);
 
   // Auto-refresh balances every 30 seconds
   useEffect(() => {
@@ -278,7 +276,7 @@ export default function Home() {
       const interval = setInterval(fetchAllBalances, 30000);
       return () => clearInterval(interval);
     }
-  }, [currentWallet, isWalletUnlocked, customTokens, currentNetwork]);
+  }, [currentWallet, isWalletUnlocked, fetchAllBalances]);
 
   const handleCreateNewWallet = () => {
     try {
@@ -296,6 +294,11 @@ export default function Home() {
   const handleSaveNewWallet = () => {
     if (!password) {
       addAlert('error', 'Please enter a password');
+      return;
+    }
+
+    if (!newWalletData) {
+      addAlert('error', 'No wallet data to save');
       return;
     }
 
@@ -544,7 +547,7 @@ export default function Home() {
                     </button>
                   </div>
                   <p className="text-xs text-red-600 mt-1">
-                    ⚠️ Save this mnemonic phrase securely! You'll need it to recover your wallet.
+                    ⚠️ Save this mnemonic phrase securely! You&apos;ll need it to recover your wallet.
                   </p>
                 </div>
                 <div className="mb-6">
@@ -832,13 +835,6 @@ export default function Home() {
                        Send Transaction
                      </button>
                      <button
-                       onClick={() => setShowTokenSwap(true)}
-                       className="w-full flex items-center justify-center px-4 py-3 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 transform transition-all duration-300 hover:scale-105 hover:shadow-xl shadow-lg cursor-pointer active:scale-95"
-                     >
-                       <ArrowPathIcon className="h-5 w-5 mr-2" />
-                       Swap Tokens
-                     </button>
-                     <button
                        onClick={() => setShowAddToken(true)}
                        className="w-full flex items-center justify-center px-4 py-3 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 transform transition-all duration-300 hover:scale-105 hover:shadow-lg shadow-md cursor-pointer active:scale-95"
                      >
@@ -887,14 +883,22 @@ export default function Home() {
                               <div className="flex items-center">
                                 <div className="h-8 w-8 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-100">
                                   {token.imageUrl ? (
-                                    <img 
+                                    <Image 
                                       src={token.imageUrl} 
                                       alt={token.symbol}
+                                      width={32}
+                                      height={32}
                                       className="h-8 w-8 object-cover"
-                                      onError={(e) => {
-                                        const target = e.target as HTMLImageElement;
-                                        target.style.display = 'none';
-                                        target.nextElementSibling?.classList.remove('hidden');
+                                      onError={() => {
+                                        // Handle error by hiding the image
+                                        const imgElement = document.querySelector(`[src="${token.imageUrl}"]`) as HTMLImageElement;
+                                        if (imgElement) {
+                                          imgElement.style.display = 'none';
+                                          const fallback = imgElement.nextElementSibling as HTMLElement;
+                                          if (fallback) {
+                                            fallback.classList.remove('hidden');
+                                          }
+                                        }
                                       }}
                                     />
                                   ) : null}
@@ -965,14 +969,22 @@ export default function Home() {
                         >
                           <div className="h-6 w-6 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-100">
                             {token.logoURI ? (
-                              <img 
+                              <Image 
                                 src={token.logoURI} 
                                 alt={token.symbol}
+                                width={24}
+                                height={24}
                                 className="h-6 w-6 object-cover"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.style.display = 'none';
-                                  target.nextElementSibling?.classList.remove('hidden');
+                                onError={() => {
+                                  // Handle error by hiding the image
+                                  const imgElement = document.querySelector(`[src="${token.logoURI}"]`) as HTMLImageElement;
+                                  if (imgElement) {
+                                    imgElement.style.display = 'none';
+                                    const fallback = imgElement.nextElementSibling as HTMLElement;
+                                    if (fallback) {
+                                      fallback.classList.remove('hidden');
+                                    }
+                                  }
                                 }}
                               />
                             ) : null}
@@ -1054,14 +1066,6 @@ export default function Home() {
         isOpen={showSendTransaction} 
         onClose={() => setShowSendTransaction(false)} 
       />
-
-      {/* Token Swap Component */}
-      {/*
-      <TokenSwap 
-        isOpen={showTokenSwap} 
-        onClose={() => setShowTokenSwap(false)} 
-      />
-      */}
     </div>
   );
 }

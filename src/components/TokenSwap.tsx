@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { useWallet } from '@/lib/walletContext';
 import { buildAndSendRawTx, WalletConfig } from '@/lib/walletUtils';
 import { BASE_SEPOLIA_CONFIG } from '@/lib/walletManager';
@@ -118,14 +119,22 @@ export default function TokenSwap({ isOpen, onClose }: TokenSwapProps) {
                     <div className="text-center">
                       <div className="h-8 w-8 rounded-full flex items-center justify-center mx-auto mb-2 overflow-hidden bg-gray-100">
                         {token.logoURI ? (
-                          <img 
+                          <Image 
                             src={token.logoURI} 
                             alt={token.symbol}
+                            width={32}
+                            height={32}
                             className="h-8 w-8 object-cover"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = 'none';
-                              target.nextElementSibling?.classList.remove('hidden');
+                            onError={() => {
+                              // Handle error by hiding the image
+                              const imgElement = document.querySelector(`[src="${token.logoURI}"]`) as HTMLImageElement;
+                              if (imgElement) {
+                                imgElement.style.display = 'none';
+                                const fallback = imgElement.nextElementSibling as HTMLElement;
+                                if (fallback) {
+                                  fallback.classList.remove('hidden');
+                                }
+                              }
                             }}
                           />
                         ) : null}
@@ -167,7 +176,7 @@ export default function TokenSwap({ isOpen, onClose }: TokenSwapProps) {
                       for {ethAmount || '0'} ETH
                     </p>
                     <p className="text-xs mt-2 opacity-75">
-                      Note: This is a demo swap. In production, you'd integrate with a real DEX.
+                      Note: This is a demo swap. In production, you&apos;d integrate with a real DEX.
                     </p>
                   </div>
                 </div>

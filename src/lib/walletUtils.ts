@@ -1,8 +1,8 @@
 import { ec as EC } from "elliptic";
 import * as rlp from "rlp";
+// @ts-expect-error - keccak module has no type definitions
 import Keccak from "keccak";
 import axios from "axios";
-import type { ethers } from "ethers";
 
 // Initialize elliptic curve
 let ec: EC;
@@ -26,18 +26,18 @@ export interface WalletConfig {
     privateKey: string;
     chainId: number;
     rpcUrl: string; // used for axios mode
-    provider?: ethers.Provider; // optional for in-memory Hardhat network
+    provider?: { send: (method: string, params: unknown[]) => Promise<string> }; // optional for in-memory Hardhat network
 }
 
-// 🔹 Utility to strip leading zeros in hex values
-function stripHexPrefixAndZero(hex: string): string {
-    let h = hex.toLowerCase();
-    if (h.startsWith("0x")) {
-        h = h.slice(2);
-    }
-    h = h.replace(/^0+/, ""); // remove leading zeros
-    return h === "" ? "0x0" : "0x" + h;
-}
+// 🔹 Utility to strip leading zeros in hex values (unused - keeping for reference)
+// function stripHexPrefixAndZero(hex: string): string {
+//     let h = hex.toLowerCase();
+//     if (h.startsWith("0x")) {
+//         h = h.slice(2);
+//     }
+//     h = h.replace(/^0+/, ""); // remove leading zeros
+//     return h === "" ? "0x0" : "0x" + h;
+// }
 
 export function deriveAddress(privateKey: string): string {
     try {

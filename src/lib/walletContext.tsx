@@ -10,7 +10,6 @@ import {
   initializeDefaultTokens,
   getCurrentNetwork,
   setCurrentNetwork,
-  getCurrentNetworkConfig,
   initializeNetwork,
   NETWORKS
 } from './walletManager';

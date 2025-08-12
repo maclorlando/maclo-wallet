@@ -2,7 +2,7 @@ import * as bip39 from 'bip39';
 import * as CryptoJS from 'crypto-js';
 import { deriveAddress } from './walletUtils';
 import { ec as EC } from 'elliptic';
-import * as hdkey from 'hdkey';
+import hdkey from 'hdkey';
 
 // Initialize elliptic curve
 const ec = new EC('secp256k1');
@@ -333,7 +333,7 @@ export function recoverWallet(address: string, password: string): WalletData {
   try {
     const mnemonic = decryptMnemonic(wallet, password);
     return importWalletFromMnemonic(mnemonic);
-  } catch (error) {
+  } catch {
     throw new Error('Invalid password');
   }
 }
