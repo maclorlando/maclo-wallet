@@ -388,7 +388,10 @@ export async function getEthBalance(address: string): Promise<string> {
     const networkConfig = getCurrentNetworkConfig();
     console.log('getEthBalance called with address:', address, 'network:', networkConfig.name, 'RPC URL:', networkConfig.rpcUrl);
     
-    const response = await fetch(networkConfig.rpcUrl, {
+    const data = await requestManager.request<{
+      error?: { message: string };
+      result?: string;
+    }>(networkConfig.rpcUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -399,9 +402,13 @@ export async function getEthBalance(address: string): Promise<string> {
         method: 'eth_getBalance',
         params: [address, 'latest']
       })
+    }, {
+      cacheKey: `eth-balance-${address}-${networkConfig.name}`,
+      ttl: 30000, // 30 seconds cache for balance
+      retries: 1,
+      timeout: 15000
     });
 
-    const data = await response.json();
     console.log('getEthBalance response:', data);
     
     if (data.error) {
@@ -409,6 +416,9 @@ export async function getEthBalance(address: string): Promise<string> {
     }
 
     // Convert from hex to decimal
+    if (!data.result) {
+      throw new Error('No result from RPC call');
+    }
     const balanceWei = BigInt(data.result);
     const balanceEth = Number(balanceWei) / Math.pow(10, 18);
     console.log('getEthBalance result:', balanceEth.toFixed(6));
@@ -419,30 +429,12 @@ export async function getEthBalance(address: string): Promise<string> {
   }
 }
 
-// Token image fetching function
+import { requestManager } from './requestManager';
+
+// Token image fetching function with rate limiting and caching
 export async function getTokenImage(symbol: string, address: string): Promise<string> {
   try {
-    // Try multiple sources for token images
-    const sources = [
-      `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${address}/logo.png`,
-      `https://cryptologos.cc/logos/${symbol.toLowerCase()}-${symbol.toLowerCase()}-logo.png`,
-      `https://assets.coingecko.com/coins/images/1/large/bitcoin.png?1696501400`, // Fallback
-    ];
-
-    for (const source of sources) {
-      try {
-        const response = await fetch(source, { method: 'HEAD' });
-        if (response.ok) {
-          return source;
-        }
-      } catch (error) {
-        console.log(`Failed to fetch from ${source}:`, error);
-        continue;
-      }
-    }
-
-    // Return a default image if all sources fail
-    return 'https://cryptologos.cc/logos/ethereum-eth-logo.png';
+    return await requestManager.getImageUrl(symbol, address);
   } catch (error) {
     console.error('Error fetching token image:', error);
     return 'https://cryptologos.cc/logos/ethereum-eth-logo.png';

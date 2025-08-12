@@ -125,15 +125,13 @@ export default function TokenSwap({ isOpen, onClose }: TokenSwapProps) {
                             width={32}
                             height={32}
                             className="h-8 w-8 object-cover"
-                            onError={() => {
-                              // Handle error by hiding the image
-                              const imgElement = document.querySelector(`[src="${token.logoURI}"]`) as HTMLImageElement;
-                              if (imgElement) {
-                                imgElement.style.display = 'none';
-                                const fallback = imgElement.nextElementSibling as HTMLElement;
-                                if (fallback) {
-                                  fallback.classList.remove('hidden');
-                                }
+                            onError={(e) => {
+                              // Handle error by showing fallback
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const fallback = target.nextElementSibling as HTMLElement;
+                              if (fallback) {
+                                fallback.classList.remove('hidden');
                               }
                             }}
                           />

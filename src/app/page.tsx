@@ -15,6 +15,7 @@ import {
   TokenInfoWithImage,
   recoverWallet
 } from '@/lib/walletManager';
+import { requestManager } from '@/lib/requestManager';
 import SendTransaction from '@/components/SendTransaction';
 import NetworkSwitcher from '@/components/NetworkSwitcher';
 import { 
@@ -111,11 +112,19 @@ export default function Home() {
     setAlerts(prev => prev.filter(alert => alert.id !== id));
   };
 
-  // Get token prices from CoinGecko
+  // Get token prices from CoinGecko with rate limiting and graceful failure
   const getTokenPrices = async () => {
     try {
-      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,usd-coin,tether&vs_currencies=usd');
-      const data = await response.json();
+      const data = await requestManager.request<{
+        ethereum?: { usd: number };
+        'usd-coin'?: { usd: number };
+        tether?: { usd: number };
+      }>('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,usd-coin,tether&vs_currencies=usd', {}, {
+        cacheKey: 'token-prices',
+        ttl: 300000, // 5 minutes cache
+        retries: 1,
+        timeout: 10000
+      });
       return {
         eth: data.ethereum?.usd || 0,
         usdc: data['usd-coin']?.usd || 1,
@@ -127,10 +136,13 @@ export default function Home() {
     }
   };
 
-  // Get token balance
+  // Get token balance with rate limiting and graceful failure
   const getTokenBalance = async (address: string, decimals: number): Promise<string> => {
     try {
-      const response = await fetch(currentNetworkConfig.rpcUrl, {
+      const data = await requestManager.request<{
+        error?: { message: string };
+        result?: string;
+      }>(currentNetworkConfig.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -142,9 +154,13 @@ export default function Home() {
             data: '0x70a08231' + '000000000000000000000000' + currentWallet?.address?.slice(2) || ''
           }, 'latest']
         })
+      }, {
+        cacheKey: `token-balance-${address}-${currentWallet?.address}-${currentNetwork}`,
+        ttl: 30000, // 30 seconds cache
+        retries: 1,
+        timeout: 15000
       });
 
-      const data = await response.json();
       if (data.error || !data.result) return '0.000000';
       
       // Handle empty or invalid result
@@ -204,12 +220,16 @@ export default function Home() {
   const [filteredTokens, setFilteredTokens] = useState<typeof famousTokens>([]);
   const [showTokenSuggestions, setShowTokenSuggestions] = useState(false);
 
+  // Debounced fetch function to prevent rapid successive calls
+  const [isFetching, setIsFetching] = useState(false);
+  
   // Fetch all balances
   const fetchAllBalances = useCallback(async () => {
-    if (!currentWallet?.address) return;
+    if (!currentWallet?.address || isFetching) return;
 
     console.log('Fetching balances for network:', currentNetwork, 'RPC URL:', currentNetworkConfig.rpcUrl);
 
+    setIsFetching(true);
     setIsLoadingBalance(true);
 
     try {
@@ -227,8 +247,7 @@ export default function Home() {
       
       for (const token of customTokens) {
         if (token.address === '0x0000000000000000000000000000000000000000') {
-          // ETH balance
-          const ethImageUrl = await getTokenImage('ETH', token.address);
+          // ETH balance - use default image immediately
           balances.push({
             symbol: 'ETH',
             name: 'Ethereum',
@@ -236,7 +255,7 @@ export default function Home() {
             balance: ethBalance,
             usdValue: Number(ethBalance) * prices.eth,
             decimals: 18,
-            imageUrl: ethImageUrl
+            imageUrl: 'https://cryptologos.cc/logos/ethereum-eth-logo.png'
           });
         } else {
           // Token balance
@@ -244,8 +263,16 @@ export default function Home() {
           const usdValue = token.symbol === 'USDC' ? Number(balance) * prices.usdc :
                           token.symbol === 'USDT' ? Number(balance) * prices.usdt : 0;
           
-          // Fetch token image
-          const imageUrl = await getTokenImage(token.symbol, token.address);
+          // Use existing logoURI if available, otherwise fetch image
+          let imageUrl = token.logoURI;
+          if (!imageUrl) {
+            try {
+              imageUrl = await getTokenImage(token.symbol, token.address);
+            } catch (error) {
+              console.log(`Failed to fetch image for ${token.symbol}:`, error);
+              imageUrl = 'https://cryptologos.cc/logos/ethereum-eth-logo.png'; // fallback
+            }
+          }
           
           balances.push({
             symbol: token.symbol,
@@ -265,15 +292,16 @@ export default function Home() {
       addAlert('error', 'Failed to fetch balances');
     } finally {
       setIsLoadingBalance(false);
+      setIsFetching(false);
     }
-  }, [currentWallet, currentNetwork, currentNetworkConfig, customTokens, addAlert, getTokenBalance]);
+  }, [currentWallet, currentNetwork, currentNetworkConfig, customTokens, addAlert, getTokenBalance, isFetching]);
 
-  // Auto-refresh balances every 30 seconds
+  // Auto-refresh balances every 60 seconds (reduced frequency)
   useEffect(() => {
     if (currentWallet && isWalletUnlocked) {
       fetchAllBalances();
       
-      const interval = setInterval(fetchAllBalances, 30000);
+      const interval = setInterval(fetchAllBalances, 60000); // Changed from 30 to 60 seconds
       return () => clearInterval(interval);
     }
   }, [currentWallet, isWalletUnlocked, fetchAllBalances]);
@@ -889,15 +917,13 @@ export default function Home() {
                                       width={32}
                                       height={32}
                                       className="h-8 w-8 object-cover"
-                                      onError={() => {
-                                        // Handle error by hiding the image
-                                        const imgElement = document.querySelector(`[src="${token.imageUrl}"]`) as HTMLImageElement;
-                                        if (imgElement) {
-                                          imgElement.style.display = 'none';
-                                          const fallback = imgElement.nextElementSibling as HTMLElement;
-                                          if (fallback) {
-                                            fallback.classList.remove('hidden');
-                                          }
+                                      onError={(e) => {
+                                        // Handle error by showing fallback
+                                        const target = e.target as HTMLImageElement;
+                                        target.style.display = 'none';
+                                        const fallback = target.nextElementSibling as HTMLElement;
+                                        if (fallback) {
+                                          fallback.classList.remove('hidden');
                                         }
                                       }}
                                     />
@@ -969,24 +995,22 @@ export default function Home() {
                         >
                           <div className="h-6 w-6 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-100">
                             {token.logoURI ? (
-                              <Image 
-                                src={token.logoURI} 
-                                alt={token.symbol}
-                                width={24}
-                                height={24}
-                                className="h-6 w-6 object-cover"
-                                onError={() => {
-                                  // Handle error by hiding the image
-                                  const imgElement = document.querySelector(`[src="${token.logoURI}"]`) as HTMLImageElement;
-                                  if (imgElement) {
-                                    imgElement.style.display = 'none';
-                                    const fallback = imgElement.nextElementSibling as HTMLElement;
-                                    if (fallback) {
-                                      fallback.classList.remove('hidden');
-                                    }
-                                  }
-                                }}
-                              />
+                                                          <Image 
+                              src={token.logoURI} 
+                              alt={token.symbol}
+                              width={24}
+                              height={24}
+                              className="h-6 w-6 object-cover"
+                              onError={(e) => {
+                                // Handle error by showing fallback
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const fallback = target.nextElementSibling as HTMLElement;
+                                if (fallback) {
+                                  fallback.classList.remove('hidden');
+                                }
+                              }}
+                            />
                             ) : null}
                             <div className={`h-6 w-6 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center ${token.logoURI ? 'hidden' : ''}`}>
                               <span className="text-white text-xs font-bold">{token.symbol}</span>
