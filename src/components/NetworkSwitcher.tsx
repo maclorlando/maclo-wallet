@@ -1,64 +1,104 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useWallet } from '../lib/walletContext';
+import React from 'react';
+import { useWallet } from '@/lib/walletContext';
 import { ChevronDownIcon } from '@heroicons/react/24/outline';
+import { Copy } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { Tooltip, Label } from '@/components/ui';
+import { useToast } from '@/hooks/useToast';
 
 export default function NetworkSwitcher() {
-  const { currentNetwork, setCurrentNetwork, currentNetworkConfig, availableNetworks } = useWallet();
-  const [isOpen, setIsOpen] = useState(false);
+  const { toast } = useToast();
+  const { currentWallet, currentNetwork, setCurrentNetwork, availableNetworks } = useWallet();
 
-  const handleNetworkSelect = (networkKey: string) => {
-    setCurrentNetwork(networkKey);
-    setIsOpen(false);
+  const currentNetworkConfig = availableNetworks[currentNetwork];
+
+  const handleCopyAddress = async () => {
+    if (currentWallet?.address) {
+      try {
+        await navigator.clipboard.writeText(currentWallet.address);
+        toast({
+          variant: 'success',
+          title: 'Address Copied',
+          description: 'Wallet address copied to clipboard!',
+        });
+      } catch (error) {
+        console.error('Failed to copy address:', error);
+        toast({
+          variant: 'error',
+          title: 'Error',
+          description: 'Failed to copy address',
+        });
+      }
+    }
+  };
+
+  const handleNetworkChange = (network: string) => {
+    setCurrentNetwork(network);
+    toast({
+      variant: 'info',
+      title: 'Network Switched',
+      description: `Switched to ${availableNetworks[network].name}`,
+    });
   };
 
   return (
-    <div className="relative">
-      {/* Network Selector Button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg shadow-lg hover:shadow-xl transform transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
-      >
-        <span className="text-lg">{currentNetworkConfig.icon}</span>
-        <span className="font-semibold">{currentNetworkConfig.name}</span>
-        <ChevronDownIcon className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
+    <div className="flex items-center gap-3">
+             {/* Wallet Address with Copy Button */}
+       <div className="flex items-center gap-2">
+         <Label showDot dotColor="bg-green-400">
+           {currentWallet?.address?.slice(0, 6)}...{currentWallet?.address?.slice(-4)}
+         </Label>
+                 <Tooltip content="Copy address">
+           <button
+             onClick={handleCopyAddress}
+             className="text-gray-400 hover:text-gray-200 transition-all duration-200 p-1 rounded-full hover:bg-gray-700/40"
+           >
+             <Copy className="h-3 w-3" />
+           </button>
+         </Tooltip>
 
-      {/* Dropdown Menu */}
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
-          <div className="p-2">
-            <div className="text-sm font-medium text-gray-500 px-3 py-2">Select Network</div>
+      </div>
+
+      {/* Network Switcher with Radix UI */}
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button className="jupiter-network-btn">
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+              <span className="text-xs font-medium text-white">
+                {currentNetworkConfig.name}
+              </span>
+            </div>
+            <ChevronDownIcon className="h-2.5 w-2.5 text-gray-400 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+          </button>
+        </DropdownMenu.Trigger>
+
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            className="jupiter-network-dropdown"
+            sideOffset={4}
+            align="end"
+            side="bottom"
+          >
             {Object.entries(availableNetworks).map(([key, network]) => (
-              <button
+              <DropdownMenu.Item
                 key={key}
-                onClick={() => handleNetworkSelect(key)}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 hover:bg-gray-50 ${
-                  currentNetwork === key ? 'bg-blue-50 border border-blue-200' : ''
-                }`}
+                className="jupiter-network-option"
+                onClick={() => handleNetworkChange(key)}
+                data-state={currentNetwork === key ? "checked" : "unchecked"}
               >
-                <span className="text-xl">{network.icon}</span>
-                <div className="flex-1 text-left">
-                  <div className="font-medium text-gray-900">{network.name}</div>
-                  <div className="text-xs text-gray-500">Chain ID: {network.chainId}</div>
-                </div>
+                <div className="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+                <span>{network.name}</span>
                 {currentNetwork === key && (
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-green-400"></div>
                 )}
-              </button>
+              </DropdownMenu.Item>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Backdrop */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 z-40" 
-          onClick={() => setIsOpen(false)}
-        />
-      )}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </div>
   );
 }

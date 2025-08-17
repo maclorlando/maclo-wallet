@@ -18,7 +18,8 @@ class RequestManager {
   private requestTimestamps: { [key: string]: number[] } = {};
   private pendingRequests: { [key: string]: Promise<unknown> } = {};
   private defaultRateLimit: RateLimitConfig = { maxRequests: 10, timeWindow: 1000 }; // 10 requests per second
-  private imageRateLimit: RateLimitConfig = { maxRequests: 3, timeWindow: 3000 }; // 3 requests per 3 seconds for images
+  private imageRateLimit: RateLimitConfig = { maxRequests: 1, timeWindow: 5000 }; // 1 request per 5 seconds for images
+  private coingeckoRateLimit: RateLimitConfig = { maxRequests: 1, timeWindow: 10000 }; // 1 request per 10 seconds for CoinGecko
 
   // Check if request is within rate limit
   private isRateLimited(key: string, config: RateLimitConfig): boolean {
@@ -181,8 +182,8 @@ class RequestManager {
           if (error.name === 'AbortError') {
             throw new Error(`Request timeout for ${url}`);
           }
-          if (error.message.includes('HTTP 404') || error.message.includes('HTTP 403')) {
-            throw error; // Don't retry on 404 or 403
+          if (error.message.includes('HTTP 404') || error.message.includes('HTTP 403') || error.message.includes('HTTP 429')) {
+            throw error; // Don't retry on 404, 403, or 429
           }
         }
 
@@ -210,7 +211,7 @@ class RequestManager {
     }
   }
 
-  // Get image URL with fallbacks
+  // Get image URL with fallbacks - now with much stricter rate limiting and better error handling
   async getImageUrl(symbol: string, address: string): Promise<string> {
     const cacheKey = `image-${symbol}-${address}`;
     
@@ -222,46 +223,178 @@ class RequestManager {
 
     // For native ETH, return default immediately
     if (address === '0x0000000000000000000000000000000000000000') {
-      const defaultImage = 'https://cryptologos.cc/logos/ethereum-eth-logo.png';
+      const defaultImage = 'https://assets.coingecko.com/coins/images/279/small/ethereum.png';
       this.cacheResponse(cacheKey, defaultImage, 3600000);
       return defaultImage;
     }
 
+    // Try multiple reliable sources in order of preference with strict rate limiting
     const sources = [
-      `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${address}/logo.png`,
-      `https://cryptologos.cc/logos/${symbol.toLowerCase()}-${symbol.toLowerCase()}-logo.png`,
+      // 1. CoinGecko API (most reliable) - with very strict rate limiting
+      async () => {
+        try {
+          // Check if we're rate limited for CoinGecko
+          if (this.isRateLimited('coingecko-global', this.coingeckoRateLimit)) {
+            throw new Error('CoinGecko rate limit exceeded');
+          }
+
+          const response = await this.request<{
+            id?: string;
+            image?: { small?: string; large?: string; thumb?: string };
+          }>(`https://api.coingecko.com/api/v3/coins/ethereum/contract/${address}`, {}, {
+            cacheKey: `coingecko-${address}`,
+            ttl: 3600000, // 1 hour cache
+            retries: 0, // No retries for CoinGecko to avoid rate limits
+            timeout: 8000,
+            rateLimit: this.coingeckoRateLimit
+          });
+          
+          if (response.image?.small || response.image?.thumb) {
+            return response.image.small || response.image.thumb;
+          }
+          throw new Error('No image found in CoinGecko response');
+        } catch (error) {
+          console.log(`CoinGecko failed for ${symbol}:`, error);
+          throw error;
+        }
+      },
+      
+      // 2. Trust Wallet Assets (good for Ethereum tokens)
+      async () => {
+        const trustWalletUrl = `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${address}/logo.png`;
+        try {
+          // Check if image exists before caching
+          const exists = await this.checkImageExists(trustWalletUrl);
+          if (exists) {
+            return trustWalletUrl;
+          }
+          throw new Error('Trust Wallet image not found');
+        } catch (error) {
+          console.log(`Trust Wallet failed for ${symbol}:`, error);
+          throw error;
+        }
+      },
+      
+      // 3. Token Lists (for popular tokens) - using a more reliable endpoint
+      async () => {
+        const tokenListUrl = `https://raw.githubusercontent.com/Uniswap/token-lists/main/test/schema/tokenlist.json`;
+        try {
+          const response = await this.request<{
+            tokens?: Array<{
+              address: string;
+              symbol: string;
+              logoURI?: string;
+            }>;
+          }>(tokenListUrl, {}, {
+            cacheKey: 'token-list-uniswap-raw',
+            ttl: 1800000, // 30 minutes cache
+            retries: 1,
+            timeout: 5000,
+            rateLimit: this.imageRateLimit
+          });
+          
+          const token = response.tokens?.find(t => 
+            t.address.toLowerCase() === address.toLowerCase()
+          );
+          
+          if (token?.logoURI) {
+            return token.logoURI;
+          }
+          throw new Error('Token not found in token list');
+        } catch (error) {
+          console.log(`Token list failed for ${symbol}:`, error);
+          throw error;
+        }
+      }
     ];
 
-    // Try each source with rate limiting and caching
+    // Try each source with proper error handling
     for (const source of sources) {
       try {
-        // Use rate-limited request for image checking
-        await this.request<Response>(source, { method: 'HEAD' }, {
-          rateLimit: this.imageRateLimit,
-          cacheKey: `image-check-${source}`,
-          ttl: 300000, // 5 minutes cache for image checks
-          retries: 0, // No retries for image checks
-          timeout: 3000 // 3 second timeout
-        });
-        
-        // If we get here, the image exists
-        this.cacheResponse(cacheKey, source, 3600000); // 1 hour cache for image URLs
-        return source;
+        const imageUrl = await source();
+        if (imageUrl) {
+          this.cacheResponse(cacheKey, imageUrl, 3600000); // 1 hour cache for successful image URLs
+          return imageUrl;
+        }
       } catch (error) {
-        console.log(`Failed to check image at ${source}:`, error);
+        console.log(`Source failed for ${symbol}:`, error);
         continue;
       }
     }
 
-    // Return default image if all sources fail and cache the failure for longer
-    const defaultImage = 'https://cryptologos.cc/logos/ethereum-eth-logo.png';
-    this.cacheResponse(cacheKey, defaultImage, 7200000); // Cache failure for 2 hours
-    return defaultImage;
+    // If all sources fail, return a generated fallback URL
+    // This will be handled by the SafeImage component to show colored initials
+    const fallbackUrl = `data:image/svg+xml;base64,${btoa(`
+      <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="16" fill="#${this.generateColorFromString(symbol)}"/>
+        <text x="16" y="20" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+          ${symbol.substring(0, 3).toUpperCase()}
+        </text>
+      </svg>
+    `)}`;
+    
+    this.cacheResponse(cacheKey, fallbackUrl, 7200000); // Cache fallback for 2 hours
+    return fallbackUrl;
+  }
+
+  // Generate a consistent color from a string
+  private generateColorFromString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    // Generate a color with good contrast
+    const hue = Math.abs(hash) % 360;
+    const saturation = 70 + (Math.abs(hash) % 20); // 70-90%
+    const lightness = 40 + (Math.abs(hash) % 20); // 40-60%
+    
+    // Convert HSL to hex
+    const h = hue / 360;
+    const s = saturation / 100;
+    const l = lightness / 100;
+    
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    
+    const hueToRgb = (t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    
+    const r = Math.round(hueToRgb(h + 1/3) * 255);
+    const g = Math.round(hueToRgb(h) * 255);
+    const b = Math.round(hueToRgb(h - 1/3) * 255);
+    
+    return ((r << 16) + (g << 8) + b).toString(16).padStart(6, '0');
   }
 
   // Clear all cache
   clearCache(): void {
     this.cache = {};
+  }
+
+  // Clear image cache specifically
+  clearImageCache(): void {
+    const keysToRemove = Object.keys(this.cache).filter(key => 
+      key.startsWith('image-') || 
+      key.startsWith('coingecko-') || 
+      key.startsWith('trustwallet-check-') ||
+      key.startsWith('token-list-')
+    );
+    keysToRemove.forEach(key => delete this.cache[key]);
+  }
+
+  // Clear all problematic cached data and force refresh
+  clearAllCachedData(): void {
+    this.cache = {};
+    this.requestTimestamps = {};
+    this.pendingRequests = {};
+    console.log('All cached data cleared');
   }
 
   // Get cache statistics
@@ -270,6 +403,36 @@ class RequestManager {
       size: Object.keys(this.cache).length,
       keys: Object.keys(this.cache)
     };
+  }
+
+  // Get rate limit status for debugging
+  getRateLimitStatus(): { [key: string]: { timestamps: number[]; isLimited: boolean } } {
+    const status: { [key: string]: { timestamps: number[]; isLimited: boolean } } = {};
+    
+    Object.keys(this.requestTimestamps).forEach(key => {
+      const timestamps = this.requestTimestamps[key];
+      const now = Date.now();
+      
+      // Determine which rate limit config to use
+      let config: RateLimitConfig;
+      if (key.includes('coingecko')) {
+        config = this.coingeckoRateLimit;
+      } else if (key.includes('image') || key.includes('token-list')) {
+        config = this.imageRateLimit;
+      } else {
+        config = this.defaultRateLimit;
+      }
+      
+      const validTimestamps = timestamps.filter(timestamp => now - timestamp < config.timeWindow);
+      const isLimited = validTimestamps.length >= config.maxRequests;
+      
+      status[key] = {
+        timestamps: validTimestamps,
+        isLimited
+      };
+    });
+    
+    return status;
   }
 }
 

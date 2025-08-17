@@ -7,14 +7,10 @@ import axios from "axios";
 // Initialize elliptic curve
 let ec: EC;
 try {
-    console.log('Attempting to initialize elliptic curve...');
     ec = new EC("secp256k1");
-    console.log('Elliptic curve initialized:', ec ? 'success' : 'failed');
     
     // Test if the elliptic curve is working
-    if (ec && typeof ec.keyFromPrivate === 'function') {
-        console.log('Elliptic curve is properly initialized and functional');
-    } else {
+    if (!ec || typeof ec.keyFromPrivate !== 'function') {
         throw new Error('Elliptic curve initialization failed - keyFromPrivate method not available');
     }
 } catch (error) {
@@ -29,6 +25,13 @@ export interface WalletConfig {
     provider?: { send: (method: string, params: unknown[]) => Promise<string> }; // optional for in-memory Hardhat network
 }
 
+export interface TokenTransferData {
+    tokenAddress: string;
+    to: string;
+    amount: string; // For ERC20: amount in smallest unit, For ERC721: tokenId
+    isERC721: boolean;
+}
+
 // 🔹 Utility to strip leading zeros in hex values (unused - keeping for reference)
 // function stripHexPrefixAndZero(hex: string): string {
 //     let h = hex.toLowerCase();
@@ -39,11 +42,57 @@ export interface WalletConfig {
 //     return h === "" ? "0x0" : "0x" + h;
 // }
 
+// ERC20 transfer function signature: transfer(address,uint256)
+const ERC20_TRANSFER_SIGNATURE = "0xa9059cbb";
+
+// ERC721 transfer function signature: transferFrom(address,address,uint256)
+const ERC721_TRANSFER_FROM_SIGNATURE = "0x23b872dd";
+
+// ERC721 safeTransferFrom function signature: safeTransferFrom(address,address,uint256)
+const ERC721_SAFE_TRANSFER_FROM_SIGNATURE = "0x42842e0e";
+
+// Function to encode ERC20 transfer data
+export function encodeERC20TransferData(to: string, amount: string, decimals: number = 18): string {
+    // Remove 0x prefix if present
+    const cleanTo = to.startsWith('0x') ? to.slice(2) : to;
+    
+    // Convert amount to the smallest unit (e.g., wei for ETH, smallest unit for tokens)
+    // For tokens with decimals, multiply by 10^decimals
+    const amountInSmallestUnit = BigInt(Math.floor(Number(amount) * Math.pow(10, decimals)));
+    
+    // Convert to hex and pad to 32 bytes (64 hex characters)
+    const amountHex = amountInSmallestUnit.toString(16).padStart(64, '0');
+    
+    // Encode parameters: address (32 bytes) + uint256 (32 bytes)
+    const encodedData = ERC20_TRANSFER_SIGNATURE + 
+                       cleanTo.padStart(64, '0') + 
+                       amountHex;
+    
+    // Return without 0x prefix since it will be added later
+    return encodedData;
+}
+
+// Function to encode ERC721 transfer data
+export function encodeERC721TransferData(from: string, to: string, tokenId: string): string {
+    // Remove 0x prefix if present
+    const cleanFrom = from.startsWith('0x') ? from.slice(2) : from;
+    const cleanTo = to.startsWith('0x') ? to.slice(2) : to;
+    
+    // Convert tokenId to hex and pad to 32 bytes (64 hex characters)
+    const tokenIdHex = BigInt(tokenId).toString(16).padStart(64, '0');
+    
+    // Encode parameters: address (32 bytes) + address (32 bytes) + uint256 (32 bytes)
+    const encodedData = ERC721_TRANSFER_FROM_SIGNATURE + 
+                       cleanFrom.padStart(64, '0') + 
+                       cleanTo.padStart(64, '0') + 
+                       tokenIdHex;
+    
+    // Return without 0x prefix since it will be added later
+    return encodedData;
+}
+
 export function deriveAddress(privateKey: string): string {
     try {
-        console.log('deriveAddress called with privateKey:', privateKey.substring(0, 10) + '...');
-        console.log('Private key length:', privateKey.length);
-
         // Ensure private key is properly formatted (64 hex characters)
         let cleanPrivateKey = privateKey;
         if (privateKey.startsWith('0x')) {
@@ -55,10 +104,6 @@ export function deriveAddress(privateKey: string): string {
             cleanPrivateKey = '0' + cleanPrivateKey;
         }
         
-        console.log('Clean private key:', cleanPrivateKey.substring(0, 10) + '...');
-        console.log('Clean private key length:', cleanPrivateKey.length);
-        console.log('Clean private key is valid hex:', /^[0-9a-fA-F]+$/.test(cleanPrivateKey));
-        
         if (!ec) {
             throw new Error('Elliptic curve is undefined');
         }
@@ -66,24 +111,12 @@ export function deriveAddress(privateKey: string): string {
         if (typeof ec.keyFromPrivate !== 'function') {
             throw new Error('keyFromPrivate method is not available on elliptic curve');
         }
-        
-        console.log('About to call keyFromPrivate...');
-        console.log('EC object at call time:', ec);
 
         const keyPair = ec.keyFromPrivate(cleanPrivateKey, 'hex');
-        console.log('Key pair created');
-        
         const pubPoint = keyPair.getPublic();
-        console.log('Public point created');
-        
         const pubKey = pubPoint.encode("hex", false).slice(2);
-        console.log('Public key encoded:', pubKey.substring(0, 20) + '...');
-        
         const hash = Keccak("keccak256").update(Buffer.from(pubKey, "hex")).digest("hex");
-        console.log('Hash created:', hash.substring(0, 20) + '...');
-        
         const address = "0x" + hash.slice(24);
-        console.log('Address created:', address);
         
         return address;
     } catch (error) {
@@ -117,14 +150,14 @@ export async function getNonce(config: WalletConfig, address: string): Promise<n
     }
 }
 
-export async function estimateGas(config: WalletConfig, from: string, to: string, valueEth: string): Promise<number> {
+export async function estimateGas(config: WalletConfig, from: string, to: string, valueEth: string, data: string = "0x"): Promise<number> {
     const valueWei = ethToWeiHex(valueEth);
     if (config.provider) {
         const gasHex: string = await config.provider.send("eth_estimateGas", [{
             from,
             to,
             value: valueWei,
-            data: "0x"
+            data: data
         }]);
         return parseInt(gasHex, 16);
     } else {
@@ -136,7 +169,7 @@ export async function estimateGas(config: WalletConfig, from: string, to: string
                 from,
                 to,
                 value: valueWei,
-                data: "0x"
+                data: data
             }]
         });
         return parseInt(res.data.result, 16);
@@ -186,14 +219,17 @@ function toBuffer(numOrHex: number | string): Buffer {
     }
 }
 
-export async function buildAndSendRawTx(config: WalletConfig, to: string, valueEth: string) {
+export async function buildAndSendRawTx(config: WalletConfig, to: string, valueEth: string, data: string = "0x") {
     const { privateKey, chainId } = config;
     const senderAddress = deriveAddress(privateKey);
 
     const nonce = await getNonce(config, senderAddress);
-    const gasLimit = await estimateGas(config, senderAddress, to, valueEth);
+    const gasLimit = await estimateGas(config, senderAddress, to, valueEth, data);
     const gasPrice = await getGasPrice(config);
     const valueWei = ethToWeiHex(valueEth);
+
+    // Ensure data has 0x prefix
+    const cleanData = data.startsWith('0x') ? data : '0x' + data;
 
     // Build unsigned tx with all numeric fields cleaned
     const txData = [
@@ -202,7 +238,7 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
         toBuffer(gasLimit),
         Buffer.from(to.slice(2), "hex"), // address without 0x
         toBuffer(valueWei),
-        Buffer.alloc(0), // empty data field
+        Buffer.from(cleanData.slice(2), "hex"), // data field without 0x
         toBuffer(chainId),
         Buffer.alloc(0), // empty r
         Buffer.alloc(0)  // empty s
@@ -236,7 +272,7 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
         toBuffer(gasLimit),
         Buffer.from(to.slice(2), "hex"),
         toBuffer(valueWei),
-        Buffer.alloc(0), // empty data field
+        Buffer.from(cleanData.slice(2), "hex"), // data field without 0x
         toBuffer(v),
         r, // already a Buffer from signature
         s  // already a Buffer from signature
@@ -246,4 +282,72 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
     const rawTxHex = "0x" + Buffer.from(signedRlpEncoded).toString("hex");
 
     return await sendRawTransaction(config, rawTxHex);
+}
+
+// New function for ERC20 token transfers
+export async function sendERC20Token(config: WalletConfig, tokenAddress: string, to: string, amount: string, decimals: number = 18) {
+    console.log('sendERC20Token called with:', { tokenAddress, to, amount, decimals });
+    const transferData = encodeERC20TransferData(to, amount, decimals);
+    console.log('Encoded transfer data:', transferData);
+    const result = await buildAndSendRawTx(config, tokenAddress, "0", transferData);
+    console.log('Transaction result:', result);
+    return result;
+}
+
+// New function for ERC721 NFT transfers
+export async function sendERC721NFT(config: WalletConfig, nftAddress: string, from: string, to: string, tokenId: string) {
+    const transferData = encodeERC721TransferData(from, to, tokenId);
+    return await buildAndSendRawTx(config, nftAddress, "0", transferData);
+}
+
+// Function to get ERC20 token balance
+export async function getERC20Balance(config: WalletConfig, tokenAddress: string, walletAddress: string): Promise<string> {
+    const balanceOfSignature = "0x70a08231"; // balanceOf(address)
+    const paddedAddress = walletAddress.slice(2).padStart(64, '0');
+    const data = balanceOfSignature + paddedAddress;
+
+    if (config.provider) {
+        const result = await config.provider.send("eth_call", [{
+            to: tokenAddress,
+            data: data
+        }, "latest"]);
+        return BigInt(result).toString();
+    } else {
+        const res = await axios.post(config.rpcUrl, {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "eth_call",
+            params: [{
+                to: tokenAddress,
+                data: data
+            }, "latest"]
+        });
+        return BigInt(res.data.result).toString();
+    }
+}
+
+// Function to get ERC721 token owner
+export async function getERC721Owner(config: WalletConfig, nftAddress: string, tokenId: string): Promise<string> {
+    const ownerOfSignature = "0x6352211e"; // ownerOf(uint256)
+    const paddedTokenId = BigInt(tokenId).toString(16).padStart(64, '0');
+    const data = ownerOfSignature + paddedTokenId;
+
+    if (config.provider) {
+        const result = await config.provider.send("eth_call", [{
+            to: nftAddress,
+            data: data
+        }, "latest"]);
+        return "0x" + result.slice(26); // Remove padding and add 0x
+    } else {
+        const res = await axios.post(config.rpcUrl, {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "eth_call",
+            params: [{
+                to: nftAddress,
+                data: data
+            }, "latest"]
+        });
+        return "0x" + res.data.result.slice(26); // Remove padding and add 0x
+    }
 }

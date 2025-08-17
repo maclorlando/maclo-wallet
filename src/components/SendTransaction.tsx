@@ -1,214 +1,356 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWallet } from '@/lib/walletContext';
-import { buildAndSendRawTx, WalletConfig } from '@/lib/walletUtils';
-import { getCurrentNetworkConfig } from '@/lib/walletManager';
 import { 
-  PaperAirplaneIcon, 
-  ExclamationTriangleIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  XMarkIcon
+  XMarkIcon, 
+  PaperAirplaneIcon
 } from '@heroicons/react/24/outline';
+import { 
+  buildAndSendRawTx, 
+  sendERC20Token, 
+  sendERC721NFT 
+} from '@/lib/walletUtils';
+import { useToast } from '@/hooks/useToast';
 
 interface SendTransactionProps {
   isOpen: boolean;
   onClose: () => void;
+  preSelectedToken?: {
+    symbol: string;
+    name: string;
+    address: string;
+    decimals: number;
+  };
+  preSelectedNFT?: {
+    address: string;
+    tokenId: string;
+  };
 }
 
-export default function SendTransaction({ isOpen, onClose }: SendTransactionProps) {
-  const { currentWallet } = useWallet();
+export default function SendTransaction({ isOpen, onClose, preSelectedToken, preSelectedNFT }: SendTransactionProps) {
+  const { toast } = useToast();
+  const { currentWallet, currentNetworkConfig, refreshBalances, customTokens } = useWallet();
+  
   const [toAddress, setToAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [txHash, setTxHash] = useState('');
-  const [error, setError] = useState('');
+  const [transferType, setTransferType] = useState<'ETH' | 'ERC20' | 'ERC721'>('ETH');
+  const [selectedToken, setSelectedToken] = useState('');
+  const [nftAddress, setNftAddress] = useState('');
+  const [tokenId, setTokenId] = useState('');
+
+  // Set pre-selected token or NFT when component opens
+  useEffect(() => {
+    if (isOpen) {
+      if (preSelectedToken) {
+        setTransferType('ERC20');
+        setSelectedToken(preSelectedToken.address);
+      } else if (preSelectedNFT) {
+        setTransferType('ERC721');
+        setNftAddress(preSelectedNFT.address);
+        setTokenId(preSelectedNFT.tokenId);
+      }
+    }
+  }, [isOpen, preSelectedToken, preSelectedNFT]);
 
   const handleSendTransaction = async () => {
-    if (!currentWallet) {
-      setError('No wallet selected');
-      return;
-    }
-
-    if (!toAddress || !amount) {
-      setError('Please fill in all fields');
-      return;
-    }
-
-    // Validate address format
-    if (!toAddress.startsWith('0x') || toAddress.length !== 42) {
-      setError('Invalid address format');
-      return;
-    }
-
-    // Validate amount
-    const numAmount = parseFloat(amount);
-    if (isNaN(numAmount) || numAmount <= 0) {
-      setError('Invalid amount');
+    if (!toAddress || !amount || !currentWallet) {
+      toast({
+        variant: 'error',
+        title: 'Error',
+        description: 'Please fill in all required fields',
+      });
       return;
     }
 
     setIsLoading(true);
-    setError('');
-    setTxHash('');
+
+    // Show processing toast
+    toast({
+      variant: 'info',
+      title: 'Processing Transaction',
+      description: 'Your transaction is being processed...',
+    });
 
     try {
-      // Create wallet config for raw transaction
-      const walletConfig: WalletConfig = {
-        privateKey: currentWallet.privateKey,
-        chainId: getCurrentNetworkConfig().chainId,
-        rpcUrl: getCurrentNetworkConfig().rpcUrl
-      };
+      let txHash: string;
 
-      // Send raw transaction using our manual implementation
-      const hash = await buildAndSendRawTx(walletConfig, toAddress, amount);
-      setTxHash(hash);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Transaction failed');
+      switch (transferType) {
+        case 'ETH':
+          txHash = await buildAndSendRawTx({
+            privateKey: currentWallet.privateKey,
+            rpcUrl: currentNetworkConfig.rpcUrl,
+            chainId: currentNetworkConfig.chainId
+          }, toAddress, amount);
+          break;
+        case 'ERC20':
+          if (!selectedToken) {
+            toast({
+              variant: 'error',
+              title: 'Error',
+              description: 'Please select a token',
+            });
+            return;
+          }
+          // Find the selected token to get its decimals
+          const selectedTokenInfo = customTokens.find(token => token.address === selectedToken);
+          if (!selectedTokenInfo) {
+            toast({
+              variant: 'error',
+              title: 'Error',
+              description: 'Selected token not found',
+            });
+            return;
+          }
+          console.log('Sending ERC20 token:', {
+            tokenAddress: selectedToken,
+            toAddress,
+            amount,
+            decimals: selectedTokenInfo.decimals
+          });
+          txHash = await sendERC20Token({
+            privateKey: currentWallet.privateKey,
+            rpcUrl: currentNetworkConfig.rpcUrl,
+            chainId: currentNetworkConfig.chainId
+          }, selectedToken, toAddress, amount, selectedTokenInfo.decimals);
+          break;
+        case 'ERC721':
+          if (!nftAddress || !tokenId) {
+            toast({
+              variant: 'error',
+              title: 'Error',
+              description: 'Please fill in NFT address and token ID',
+            });
+            return;
+          }
+          txHash = await sendERC721NFT({
+            privateKey: currentWallet.privateKey,
+            rpcUrl: currentNetworkConfig.rpcUrl,
+            chainId: currentNetworkConfig.chainId
+          }, nftAddress, currentWallet.address, toAddress, tokenId);
+          break;
+        default:
+          throw new Error('Invalid transfer type');
+      }
+
+      // Check if we got a valid transaction hash
+      if (!txHash || txHash.length < 10) {
+        console.error('Invalid transaction hash received:', txHash);
+        throw new Error(`Invalid transaction hash received: ${txHash}. This usually means the transaction failed to submit.`);
+      }
+
+      console.log('Transaction submitted with hash:', txHash);
+
+      // Wait for transaction confirmation
+      const receipt = await waitForTransaction(txHash, currentNetworkConfig.rpcUrl);
+      
+      if (receipt && receipt.status === '0x1') {
+        toast({
+          variant: 'success',
+          title: 'Transaction Successful',
+          description: `Transaction completed! Hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}`,
+        });
+        // Refresh balances after successful transaction
+        setTimeout(() => {
+          // Trigger balance refresh by setting the flag
+          refreshBalances();
+        }, 2000); // Wait 2 seconds for blockchain to update
+      } else if (receipt && receipt.status === '0x0') {
+        throw new Error('Transaction was reverted by the blockchain');
+      } else {
+        throw new Error('Transaction failed or was reverted');
+      }
+
+      handleClose();
+    } catch (error) {
+      console.error('Transaction failed:', error);
+      toast({
+        variant: 'error',
+        title: 'Transaction Failed',
+        description: 'Transaction failed: ' + error,
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Function to wait for transaction confirmation
+  const waitForTransaction = async (txHash: string, rpcUrl: string): Promise<{ status: string; blockHash: string }> => {
+    const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max wait
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      try {
+        const response = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'eth_getTransactionReceipt',
+            params: [txHash]
+          })
+        });
+
+        const data = await response.json();
+        
+        if (data.result && data.result.blockHash) {
+          console.log('Transaction confirmed:', data.result);
+          return data.result;
+        }
+
+        // Wait 2 seconds before next attempt
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        attempts++;
+      } catch (error) {
+        console.error('Error checking transaction receipt:', error);
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+
+    throw new Error('Transaction confirmation timeout');
+  };
+
   const handleClose = () => {
     setToAddress('');
     setAmount('');
-    setTxHash('');
-    setError('');
-    setIsLoading(false);
+    setTransferType('ETH');
+    setSelectedToken('');
+    setNftAddress('');
+    setTokenId('');
     onClose();
+  };
+
+  const handleTokenChange = (tokenAddress: string) => {
+    setSelectedToken(tokenAddress);
+    if (tokenAddress === '0x0000000000000000000000000000000000000000') {
+      setTransferType('ETH');
+    } else {
+      setTransferType('ERC20');
+    }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-20 mx-auto p-6 border w-96 shadow-2xl rounded-xl bg-white">
-        <div className="mt-3">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold text-gray-900">
-              Send Transaction
-            </h3>
-            <button
-              onClick={handleClose}
-              className="text-gray-400 hover:text-gray-600 transform transition-all duration-200 hover:scale-110"
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
-          </div>
+    <div className="jupiter-modal-overlay" onClick={handleClose}>
+      <div className="jupiter-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="jupiter-modal-header">
+          <h3 className="jupiter-modal-title">Send Transaction</h3>
+          <button
+            onClick={handleClose}
+            className="jupiter-modal-close"
+          >
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
 
-          <div className="space-y-6">
+        <div className="jupiter-modal-content">
+          <div className="jupiter-form">
+            {/* Token Selection Dropdown */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                From Address
-              </label>
-              <input
-                type="text"
-                value={currentWallet?.address || ''}
-                readOnly
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm bg-gray-50 text-gray-900 font-mono"
-              />
+              <label className="block text-sm font-medium text-white mb-2">Select Token</label>
+              <select
+                value={selectedToken}
+                onChange={(e) => handleTokenChange(e.target.value)}
+                className="jupiter-input"
+              >
+                <option value="0x0000000000000000000000000000000000000000">ETH</option>
+                {customTokens
+                  .filter(token => token.address !== '0x0000000000000000000000000000000000000000')
+                  .map((token) => (
+                    <option key={token.address} value={token.address}>
+                      {token.symbol} - {token.name}
+                    </option>
+                  ))}
+              </select>
             </div>
 
+            {/* To Address */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                To Address
-              </label>
+              <label className="block text-sm font-medium text-white mb-2">To Address</label>
               <input
                 type="text"
                 value={toAddress}
                 onChange={(e) => setToAddress(e.target.value)}
                 placeholder="0x..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 font-mono"
+                className="jupiter-input font-mono"
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Amount (ETH)
-              </label>
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.01"
-                step="0.001"
-                min="0"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-900"
-              />
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-start">
-                <ExclamationTriangleIcon className="h-5 w-5 text-blue-600 mt-0.5 mr-3" />
-                <div className="text-sm text-blue-800">
-                  <p className="font-medium">Manual Transaction Creation</p>
-                  <p className="mt-1">
-                    This transaction is created manually without using wallet libraries. 
-                    The nonce, gas estimation, and transaction signing are all implemented from scratch.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="flex items-start">
-                  <XCircleIcon className="h-5 w-5 text-red-600 mt-0.5 mr-3" />
-                  <div className="text-sm text-red-800">
-                    <p className="font-medium">Error</p>
-                    <p className="mt-1">{error}</p>
-                  </div>
-                </div>
+            {/* Amount Field */}
+            {(transferType === 'ETH' || transferType === 'ERC20') && (
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Amount {transferType === 'ETH' ? '(ETH)' : ''}
+                </label>
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0.0"
+                  step="0.000001"
+                  className="jupiter-input"
+                />
               </div>
             )}
 
-            {txHash && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-start">
-                  <CheckCircleIcon className="h-5 w-5 text-green-600 mt-0.5 mr-3" />
-                  <div className="text-sm text-green-800">
-                    <p className="font-medium">Transaction Sent!</p>
-                    <p className="mt-1 break-all font-mono text-xs">{txHash}</p>
-                    <a
-                      href={`${getCurrentNetworkConfig().blockExplorer}/tx/${txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 underline mt-2 inline-block"
-                    >
-                      View on Explorer
-                    </a>
-                  </div>
+            {/* NFT Fields */}
+            {transferType === 'ERC721' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">NFT Contract Address</label>
+                  <input
+                    type="text"
+                    value={nftAddress}
+                    onChange={(e) => setNftAddress(e.target.value)}
+                    placeholder="0x..."
+                    className="jupiter-input font-mono"
+                  />
                 </div>
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">Token ID</label>
+                  <input
+                    type="text"
+                    value={tokenId}
+                    onChange={(e) => setTokenId(e.target.value)}
+                    placeholder="0"
+                    className="jupiter-input"
+                  />
+                </div>
+              </>
             )}
 
-            <div className="flex space-x-3">
-              <button
-                onClick={handleSendTransaction}
-                disabled={isLoading}
-                className="flex-1 flex items-center justify-center px-4 py-3 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transform transition-all duration-200 hover:scale-105"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <PaperAirplaneIcon className="h-5 w-5 mr-2" />
-                    Send Transaction
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleClose}
-                className="flex-1 px-4 py-3 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 transform transition-all duration-200 hover:scale-105"
-              >
-                Cancel
-              </button>
-            </div>
+            {/* Send Button */}
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={handleSendTransaction}
+                    disabled={isLoading}
+                    className="jupiter-btn jupiter-btn-primary flex-1 py-2 px-4 text-sm"
+                  >
+                    {isLoading ? (
+                      <>
+                        <div className="jupiter-loading"></div>
+                        {transferType === 'ETH' ? 'Sending ETH...' : transferType === 'ERC20' ? 'Sending Token...' : 'Sending NFT...'}
+                      </>
+                    ) : (
+                      <>
+                        <PaperAirplaneIcon className="h-4 w-4 mr-2" />
+                        Send {transferType === 'ETH' ? 'ETH' : transferType === 'ERC20' ? 'Token' : 'NFT'}
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="jupiter-btn jupiter-btn-secondary flex-1 py-2 px-4 text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
           </div>
         </div>
       </div>

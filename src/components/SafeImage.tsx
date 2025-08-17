@@ -4,7 +4,7 @@ import React, { useState, useCallback } from 'react';
 import Image from 'next/image';
 
 interface SafeImageProps {
-  src: string;
+  src?: string;
   alt: string;
   width: number;
   height: number;
@@ -35,29 +35,29 @@ export default function SafeImage({
     setIsLoading(false);
   }, []);
 
-  // If we've already had an error, show fallback immediately
-  if (hasError) {
+  // If no src or has error, show fallback
+  if (!src || hasError || src.includes('cryptologos.cc')) {
+    const displayText = fallbackText || alt.slice(0, 2).toUpperCase();
     return (
       <div 
-        className={`${className} bg-gradient-to-r ${fallbackBgColor} rounded-full flex items-center justify-center`}
+        className={`flex items-center justify-center rounded-full bg-gradient-to-r ${fallbackBgColor} ${className}`}
         style={{ width, height }}
       >
-        <span className="text-white text-xs font-bold">
-          {fallbackText || alt.charAt(0).toUpperCase()}
+        <span className="text-white font-bold text-xs">
+          {displayText}
         </span>
       </div>
     );
   }
 
   return (
-    <div className="relative" style={{ width, height }}>
+    <div className={`relative ${className}`} style={{ width, height }}>
       {isLoading && (
         <div 
-          className={`absolute inset-0 bg-gradient-to-r ${fallbackBgColor} rounded-full flex items-center justify-center animate-pulse`}
+          className="absolute inset-0 flex items-center justify-center rounded-full bg-gradient-to-r from-gray-600 to-gray-700 animate-pulse"
+          style={{ width, height }}
         >
-          <span className="text-white text-xs font-bold">
-            {fallbackText || alt.charAt(0).toUpperCase()}
-          </span>
+          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
         </div>
       )}
       <Image
@@ -65,11 +65,10 @@ export default function SafeImage({
         alt={alt}
         width={width}
         height={height}
-        className={`${className} ${isLoading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
+        className={`rounded-full object-cover ${isLoading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
         onError={handleError}
         onLoad={handleLoad}
-        unoptimized={false} // Let Next.js handle optimization
-        priority={false} // Don't prioritize these images
+        unoptimized={true}
       />
     </div>
   );

@@ -6,18 +6,19 @@ import hdkey from 'hdkey';
 
 // Initialize elliptic curve
 const ec = new EC('secp256k1');
-console.log('WalletManager: Elliptic curve initialized:', ec ? 'success' : 'failed');
 
 export interface WalletData {
   address: string;
   privateKey: string;
   mnemonic: string;
+  accountIndex?: number; // For HD wallet account index
 }
 
 export interface EncryptedWallet {
   encryptedMnemonic: string;
   address: string;
   salt: string;
+  accountIndex?: number; // For HD wallet account index
 }
 
 export interface TokenInfo {
@@ -26,6 +27,15 @@ export interface TokenInfo {
   address: string;
   decimals: number;
   logoURI?: string;
+}
+
+export interface NFTInfo {
+  symbol: string;
+  name: string;
+  address: string;
+  tokenId: string;
+  tokenURI?: string;
+  imageUrl?: string;
 }
 
 export interface NetworkConfig {
@@ -47,7 +57,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
   'base-sepolia': {
     chainId: 84532,
     name: 'Base Sepolia',
-    rpcUrl: process.env.NEXT_PUBLIC_BASE_RPC_URL || 'https://base-sepolia.g.alchemy.com/v2/demo',
+    rpcUrl: process.env.NEXT_PUBLIC_BASE_RPC_URL || 'https://sepolia.base.org',
     blockExplorer: 'https://sepolia.basescan.org',
     nativeCurrency: {
       name: 'ETH',
@@ -60,7 +70,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
   'ethereum-sepolia': {
     chainId: 11155111,
     name: 'Ethereum Sepolia',
-    rpcUrl: process.env.NEXT_PUBLIC_ETH_RPC_URL || 'https://eth-sepolia.g.alchemy.com/v2/demo',
+    rpcUrl: process.env.NEXT_PUBLIC_ETH_RPC_URL || 'https://rpc.sepolia.org',
     blockExplorer: 'https://sepolia.etherscan.io',
     nativeCurrency: {
       name: 'ETH',
@@ -80,28 +90,28 @@ export const DEFAULT_TOKENS: Record<string, TokenInfo[]> = {
       name: 'Ethereum',
       address: '0x0000000000000000000000000000000000000000', // Native token
       decimals: 18,
-      logoURI: 'https://cryptologos.cc/logos/ethereum-eth-logo.png'
+      logoURI: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png'
     },
     {
       symbol: 'USDC',
       name: 'USD Coin',
       address: '0x036CbD53842c5426634e7929541eC2318f3dCF7c', // Base Sepolia USDC
       decimals: 6,
-      logoURI: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png'
+      logoURI: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png'
     },
     {
       symbol: 'USDT',
       name: 'Tether USD',
       address: '0x7c6b91D9Be155A5DbC1B0008DAD0Ceed320c82A1', // Base Sepolia USDT
       decimals: 6,
-      logoURI: 'https://cryptologos.cc/logos/tether-usdt-logo.png'
+      logoURI: 'https://assets.coingecko.com/coins/images/325/small/Tether.png'
     },
     {
       symbol: 'WBTC',
       name: 'Wrapped Bitcoin',
       address: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22',
       decimals: 8,
-      logoURI: 'https://cryptologos.cc/logos/wrapped-bitcoin-wbtc-logo.png'
+      logoURI: 'https://assets.coingecko.com/coins/images/7598/small/wrapped_bitcoin_wbtc.png'
     }
   ],
   'ethereum-sepolia': [
@@ -110,28 +120,28 @@ export const DEFAULT_TOKENS: Record<string, TokenInfo[]> = {
       name: 'Ethereum',
       address: '0x0000000000000000000000000000000000000000', // Native token
       decimals: 18,
-      logoURI: 'https://cryptologos.cc/logos/ethereum-eth-logo.png'
+      logoURI: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png'
     },
     {
       symbol: 'USDC',
       name: 'USD Coin',
       address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // Sepolia USDC
       decimals: 6,
-      logoURI: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png'
+      logoURI: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png'
     },
     {
       symbol: 'USDT',
       name: 'Tether USD',
       address: '0x7169D38820dfd117C3FA1f22a697dba58d90BA06', // Sepolia USDT
       decimals: 6,
-      logoURI: 'https://cryptologos.cc/logos/tether-usdt-logo.png'
+      logoURI: 'https://assets.coingecko.com/coins/images/325/small/Tether.png'
     },
     {
       symbol: 'WETH',
       name: 'Wrapped Ether',
       address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14', // Sepolia WETH
       decimals: 18,
-      logoURI: 'https://cryptologos.cc/logos/weth-logo.png'
+      logoURI: 'https://assets.coingecko.com/coins/images/2518/small/weth.png'
     }
   ]
 };
@@ -168,7 +178,7 @@ export function initializeNetwork(): void {
 }
 
 // Generate a new wallet with mnemonic (without ethers.js)
-export function generateNewWallet(): WalletData {
+export function generateNewWallet(accountIndex: number = 0): WalletData {
   try {
     console.log('Starting wallet generation...');
     
@@ -181,18 +191,18 @@ export function generateNewWallet(): WalletData {
     const hdWallet = hdkey.fromMasterSeed(seed);
     console.log('HD wallet created');
     
-         // Derive the first account (m/44'/60'/0'/0/0)
-     const path = "m/44'/60'/0'/0/0";
-     const childKey = hdWallet.derive(path);
-     console.log('Child key derived');
-     
-     if (!childKey.privateKey) {
-       throw new Error('Failed to derive private key');
-     }
-     const privateKey = childKey.privateKey.toString('hex');
-     console.log('Private key:', privateKey.substring(0, 10) + '...');
-     console.log('Private key length:', privateKey.length);
-     console.log('Private key type:', typeof privateKey);
+    // Derive the account (m/44'/60'/0'/0/{accountIndex})
+    const path = `m/44'/60'/0'/0/${accountIndex}`;
+    const childKey = hdWallet.derive(path);
+    console.log('Child key derived');
+    
+    if (!childKey.privateKey) {
+      throw new Error('Failed to derive private key');
+    }
+    const privateKey = childKey.privateKey.toString('hex');
+    console.log('Private key:', privateKey.substring(0, 10) + '...');
+    console.log('Private key length:', privateKey.length);
+    console.log('Private key type:', typeof privateKey);
     
     // Derive address from private key
     console.log('Deriving address from private key...');
@@ -202,7 +212,8 @@ export function generateNewWallet(): WalletData {
     return {
       address: address,
       privateKey: privateKey,
-      mnemonic: mnemonic
+      mnemonic: mnemonic,
+      accountIndex: accountIndex
     };
   } catch (error) {
     console.error('Error in generateNewWallet:', error);
@@ -211,7 +222,7 @@ export function generateNewWallet(): WalletData {
 }
 
 // Import wallet from mnemonic (without ethers.js)
-export function importWalletFromMnemonic(mnemonic: string): WalletData {
+export function importWalletFromMnemonic(mnemonic: string, accountIndex: number = 0): WalletData {
   // Validate mnemonic
   if (!bip39.validateMnemonic(mnemonic)) {
     throw new Error('Invalid mnemonic phrase');
@@ -223,13 +234,13 @@ export function importWalletFromMnemonic(mnemonic: string): WalletData {
   // Create HD wallet
   const hdWallet = hdkey.fromMasterSeed(seed);
   
-     // Derive the first account (m/44'/60'/0'/0/0)
-   const path = "m/44'/60'/0'/0/0";
-   const childKey = hdWallet.derive(path);
-   if (!childKey.privateKey) {
-     throw new Error('Failed to derive private key');
-   }
-   const privateKey = childKey.privateKey.toString('hex');
+  // Derive the account (m/44'/60'/0'/0/{accountIndex})
+  const path = `m/44'/60'/0'/0/${accountIndex}`;
+  const childKey = hdWallet.derive(path);
+  if (!childKey.privateKey) {
+    throw new Error('Failed to derive private key');
+  }
+  const privateKey = childKey.privateKey.toString('hex');
   
   // Derive address from private key
   const address = deriveAddress(privateKey);
@@ -237,17 +248,41 @@ export function importWalletFromMnemonic(mnemonic: string): WalletData {
   return {
     address: address,
     privateKey: privateKey,
-    mnemonic: mnemonic
+    mnemonic: mnemonic,
+    accountIndex: accountIndex
   };
 }
 
+// Derive additional accounts from existing mnemonic
+export function deriveAccountFromMnemonic(mnemonic: string, accountIndex: number): WalletData {
+  return importWalletFromMnemonic(mnemonic, accountIndex);
+}
+
+// Get all accounts from a mnemonic (up to a limit)
+export function getAllAccountsFromMnemonic(mnemonic: string, maxAccounts: number = 10): WalletData[] {
+  const accounts: WalletData[] = [];
+  
+  for (let i = 0; i < maxAccounts; i++) {
+    try {
+      const account = importWalletFromMnemonic(mnemonic, i);
+      accounts.push(account);
+    } catch (error) {
+      console.error(`Failed to derive account ${i}:`, error);
+      break;
+    }
+  }
+  
+  return accounts;
+}
+
 // Encrypt mnemonic with password
-export function encryptMnemonic(mnemonic: string, password: string, address: string): EncryptedWallet {
+export function encryptMnemonic(mnemonic: string, password: string, address: string, accountIndex: number = 0): EncryptedWallet {
   try {
     console.log('encryptMnemonic called with:', { 
       mnemonicLength: mnemonic.length, 
       passwordLength: password.length, 
-      address: address 
+      address: address,
+      accountIndex: accountIndex
     });
     
     const salt = CryptoJS.lib.WordArray.random(128/8).toString();
@@ -269,7 +304,8 @@ export function encryptMnemonic(mnemonic: string, password: string, address: str
     const result = {
       encryptedMnemonic: encrypted,
       address: address,
-      salt: salt
+      salt: salt,
+      accountIndex: accountIndex
     };
     
     console.log('Encrypted wallet created');
@@ -298,7 +334,13 @@ export function decryptMnemonic(encryptedWallet: EncryptedWallet, password: stri
 export function storeEncryptedWallet(encryptedWallet: EncryptedWallet): void {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const wallets = getStoredWallets();
-    wallets.push(encryptedWallet);
+    // Check if wallet with same address already exists
+    const existingIndex = wallets.findIndex(w => w.address.toLowerCase() === encryptedWallet.address.toLowerCase());
+    if (existingIndex >= 0) {
+      wallets[existingIndex] = encryptedWallet; // Update existing wallet
+    } else {
+      wallets.push(encryptedWallet); // Add new wallet
+    }
     localStorage.setItem('encryptedWallets', JSON.stringify(wallets));
   }
 }
@@ -316,7 +358,7 @@ export function getStoredWallets(): EncryptedWallet[] {
 export function removeStoredWallet(address: string): void {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const wallets = getStoredWallets();
-    const filtered = wallets.filter(w => w.address !== address);
+    const filtered = wallets.filter(w => w.address.toLowerCase() !== address.toLowerCase());
     localStorage.setItem('encryptedWallets', JSON.stringify(filtered));
   }
 }
@@ -332,7 +374,7 @@ export function recoverWallet(address: string, password: string): WalletData {
   
   try {
     const mnemonic = decryptMnemonic(wallet, password);
-    return importWalletFromMnemonic(mnemonic);
+    return importWalletFromMnemonic(mnemonic, wallet.accountIndex || 0);
   } catch {
     throw new Error('Invalid password');
   }
@@ -344,11 +386,26 @@ export function getStoredWalletAddresses(): string[] {
   return wallets.map(w => w.address);
 }
 
+// Get wallet info from storage
+export function getStoredWalletInfo(): Array<{ address: string; accountIndex: number }> {
+  const wallets = getStoredWallets();
+  return wallets.map(w => ({ 
+    address: w.address, 
+    accountIndex: w.accountIndex || 0 
+  }));
+}
+
 // Token management
 export function addCustomToken(tokenInfo: TokenInfo): void {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const tokens = getCustomTokens();
-    tokens.push(tokenInfo);
+    // Check if token already exists
+    const existingIndex = tokens.findIndex(t => t.address.toLowerCase() === tokenInfo.address.toLowerCase());
+    if (existingIndex >= 0) {
+      tokens[existingIndex] = tokenInfo; // Update existing token
+    } else {
+      tokens.push(tokenInfo); // Add new token
+    }
     localStorage.setItem('customTokens', JSON.stringify(tokens));
   }
 }
@@ -369,6 +426,60 @@ export function removeCustomToken(address: string): void {
   }
 }
 
+// Clear duplicate USDC tokens (keep only the correct one)
+export function clearDuplicateUSDCTokens(): void {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const tokens = getCustomTokens();
+    const correctUSDCAddress = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+    
+    // Remove all USDC tokens except the correct one
+    const filtered = tokens.filter(token => {
+      if (token.symbol === 'USDC' && token.address.toLowerCase() !== correctUSDCAddress.toLowerCase()) {
+        return false; // Remove incorrect USDC tokens
+      }
+      return true; // Keep all other tokens
+    });
+    
+    localStorage.setItem('customTokens', JSON.stringify(filtered));
+  }
+}
+
+// NFT management
+export function addCustomNFT(nftInfo: NFTInfo): void {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const nfts = getCustomNFTs();
+    // Check if NFT already exists
+    const existingIndex = nfts.findIndex(n => 
+      n.address.toLowerCase() === nftInfo.address.toLowerCase() && 
+      n.tokenId === nftInfo.tokenId
+    );
+    if (existingIndex >= 0) {
+      nfts[existingIndex] = nftInfo; // Update existing NFT
+    } else {
+      nfts.push(nftInfo); // Add new NFT
+    }
+    localStorage.setItem('customNFTs', JSON.stringify(nfts));
+  }
+}
+
+export function getCustomNFTs(): NFTInfo[] {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem('customNFTs');
+    return stored ? JSON.parse(stored) : [];
+  }
+  return [];
+}
+
+export function removeCustomNFT(address: string, tokenId: string): void {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const nfts = getCustomNFTs();
+    const filtered = nfts.filter(n => 
+      !(n.address.toLowerCase() === address.toLowerCase() && n.tokenId === tokenId)
+    );
+    localStorage.setItem('customNFTs', JSON.stringify(filtered));
+  }
+}
+
 // Initialize default tokens for current network
 export function initializeDefaultTokens(): void {
   const network = getCurrentNetwork();
@@ -379,6 +490,31 @@ export function initializeDefaultTokens(): void {
     defaultTokens.forEach(token => {
       addCustomToken(token);
     });
+  }
+}
+
+// Migrate stored tokens to use new URLs (remove old cryptologos.cc URLs)
+export function migrateStoredTokens(): void {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const tokens = getCustomTokens();
+    let hasChanges = false;
+    
+    const updatedTokens = tokens.map(token => {
+      // If token has old cryptologos.cc URL, remove it to force refetch
+      if (token.logoURI && token.logoURI.includes('cryptologos.cc')) {
+        hasChanges = true;
+        return {
+          ...token,
+          logoURI: undefined // Remove old URL to force refetch
+        };
+      }
+      return token;
+    });
+    
+    if (hasChanges) {
+      localStorage.setItem('customTokens', JSON.stringify(updatedTokens));
+      console.log('Migrated stored tokens to remove old cryptologos.cc URLs');
+    }
   }
 }
 
@@ -432,12 +568,13 @@ export async function getEthBalance(address: string): Promise<string> {
 import { requestManager } from './requestManager';
 
 // Token image fetching function with rate limiting and caching
-export async function getTokenImage(symbol: string, address: string): Promise<string> {
+export async function getTokenImage(symbol: string, address: string): Promise<string | undefined> {
   try {
     return await requestManager.getImageUrl(symbol, address);
   } catch (error) {
     console.error('Error fetching token image:', error);
-    return 'https://cryptologos.cc/logos/ethereum-eth-logo.png';
+    // Return undefined to let SafeImage handle the fallback
+    return undefined;
   }
 }
 
