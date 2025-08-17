@@ -699,6 +699,29 @@ select.jupiter-input option:hover {
     font-size: 16px;
   }
   
+  /* Mobile Network Switcher */
+  .jupiter-network-btn {
+    min-width: 80px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  
+  .jupiter-network-dropdown {
+    min-width: 120px;
+  }
+  
+  .jupiter-network-option {
+    padding: 6px 8px;
+    font-size: 10px;
+  }
+  
+  /* Mobile network switcher container */
+  .jupiter-header .jupiter-network-btn {
+    min-width: 70px;
+    padding: 3px 6px;
+    font-size: 9px;
+  }
+  
   .jupiter-card-description {
     font-size: 13px;
   }

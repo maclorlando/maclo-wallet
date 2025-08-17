@@ -13,7 +13,8 @@ import {
   getEthBalance,
   TokenInfoWithImage,
   NFTInfo,
-  recoverWallet
+  recoverWallet,
+  getTokenImage
 } from '@/lib/walletManager';
 import { requestManager } from '@/lib/requestManager';
 import SendTransaction from '@/components/SendTransaction';
@@ -258,7 +259,7 @@ export default function Home() {
                 balance: ethBalance,
                 usdValue: Number(ethBalance) * prices.eth,
                 decimals: 18,
-                imageUrl: 'https://cryptologos.cc/logos/ethereum-eth-logo.png'
+                imageUrl: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png'
               };
             } else {
               // Token balance
@@ -266,8 +267,19 @@ export default function Home() {
               const usdValue = token.symbol === 'USDC' ? Number(balance) * prices.usdc :
                               token.symbol === 'USDT' ? Number(balance) * prices.usdt : 0;
               
-              // Use existing logoURI if available, skip image fetching for performance
-              const imageUrl = token.logoURI || 'https://cryptologos.cc/logos/ethereum-eth-logo.png';
+              // Fetch token image using the getTokenImage function (only for tokens with balance)
+              let imageUrl: string | undefined;
+              if (Number(balance) > 0) {
+                try {
+                  imageUrl = await getTokenImage(token.symbol, token.address);
+                } catch (error) {
+                  // Silently fallback to existing logoURI if available
+                  imageUrl = token.logoURI;
+                }
+              } else {
+                // For tokens with zero balance, use existing logoURI or skip image fetching
+                imageUrl = token.logoURI;
+              }
               
               if (Number(balance) > 0) {
                 hasTokens = true;
@@ -838,14 +850,16 @@ export default function Home() {
 
              {/* Header */}
                <div className="jupiter-header">
-          <div className="flex items-center gap-8">
+          <div className="flex items-start gap-8">
             <div className="jupiter-avatar flex items-center justify-center">💼</div>
             <div className="flex-1">
               <div className="text-lg font-semibold text-white mb-1">{getCurrentAccountName()}</div>
               <div className="text-sm text-gray-300 mb-4">
                 {isLoadingBalance ? 'Loading...' : `${ethBalance} ETH`}
               </div>
-              <div className="flex items-center gap-4">
+              
+              {/* Desktop Wallet Address - Hidden on Mobile */}
+              <div className="flex items-center gap-4 hidden sm:flex">
                 <Label showDot dotColor="bg-green-400">
                   {currentWallet?.address?.slice(0, 6)}...{currentWallet?.address?.slice(-4)}
                 </Label>
@@ -870,6 +884,24 @@ export default function Home() {
                     </Tooltip.Portal>
                   </Tooltip.Root>
                 </Tooltip.Provider>
+              </div>
+              
+              {/* Mobile Wallet Address and Network Switcher */}
+              <div className="sm:hidden">
+                <div className="flex items-center gap-2 mb-2">
+                  <Label showDot dotColor="bg-green-400" className="text-xs">
+                    {currentWallet?.address?.slice(0, 6)}...{currentWallet?.address?.slice(-4)}
+                  </Label>
+                  <button 
+                    onClick={handleCopyAddress}
+                    className="p-1.5 text-gray-300 hover:text-white transition-all duration-200 rounded-full hover:bg-gradient-to-r hover:from-gray-700/60 hover:to-gray-600/60 hover:scale-105 flex items-center justify-center group border border-gray-600/40 hover:border-gray-500/60 shadow-sm"
+                  >
+                    <Copy className="h-3 w-3 group-hover:scale-110 transition-transform" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <NetworkSwitcher />
+                </div>
               </div>
             </div>
           </div>
@@ -968,6 +1000,8 @@ export default function Home() {
                </div>
              </div>
            </div>
+
+           
 
            
         </div>

@@ -523,7 +523,6 @@ export function migrateStoredTokens(): void {
 export async function getEthBalance(address: string): Promise<string> {
   try {
     const networkConfig = getCurrentNetworkConfig();
-    console.log('getEthBalance called with address:', address, 'network:', networkConfig.name, 'RPC URL:', networkConfig.rpcUrl);
     
     const data = await requestManager.request<{
       error?: { message: string };
@@ -545,8 +544,6 @@ export async function getEthBalance(address: string): Promise<string> {
       retries: 1,
       timeout: 15000
     });
-
-    console.log('getEthBalance response:', data);
     
     if (data.error) {
       throw new Error(data.error.message);
@@ -558,7 +555,6 @@ export async function getEthBalance(address: string): Promise<string> {
     }
     const balanceWei = BigInt(data.result);
     const balanceEth = Number(balanceWei) / Math.pow(10, 18);
-    console.log('getEthBalance result:', balanceEth.toFixed(6));
     return balanceEth.toFixed(6);
   } catch (error) {
     console.error('Error fetching balance:', error);
@@ -577,6 +573,11 @@ export async function getTokenImage(symbol: string, address: string): Promise<st
     // Return undefined to let SafeImage handle the fallback
     return undefined;
   }
+}
+
+// Function to clear image cache (useful for debugging)
+export function clearImageCache(): void {
+  requestManager.clearImageCache();
 }
 
 // Enhanced token info with image

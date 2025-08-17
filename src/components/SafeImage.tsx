@@ -22,6 +22,28 @@ export default function SafeImage({
   fallbackText,
   fallbackBgColor = 'from-blue-500 to-indigo-600'
 }: SafeImageProps) {
+  // Generate a consistent fallback color based on the alt text
+  const getFallbackColor = (text: string) => {
+    const colors = [
+      'from-blue-500 to-indigo-600',
+      'from-green-500 to-emerald-600',
+      'from-purple-500 to-violet-600',
+      'from-orange-500 to-red-600',
+      'from-pink-500 to-rose-600',
+      'from-yellow-500 to-amber-600',
+      'from-teal-500 to-cyan-600',
+      'from-gray-500 to-slate-600'
+    ];
+    
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = text.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const dynamicFallbackColor = fallbackBgColor || getFallbackColor(alt);
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -36,11 +58,11 @@ export default function SafeImage({
   }, []);
 
   // If no src or has error, show fallback
-  if (!src || hasError || src.includes('cryptologos.cc')) {
+  if (!src || hasError) {
     const displayText = fallbackText || alt.slice(0, 2).toUpperCase();
     return (
       <div 
-        className={`flex items-center justify-center rounded-full bg-gradient-to-r ${fallbackBgColor} ${className}`}
+        className={`flex items-center justify-center rounded-full bg-gradient-to-r ${dynamicFallbackColor} ${className}`}
         style={{ width, height }}
       >
         <span className="text-white font-bold text-xs">

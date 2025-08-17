@@ -49,20 +49,19 @@ export default function NetworkSwitcher() {
 
   return (
     <div className="flex items-center gap-3">
-             {/* Wallet Address with Copy Button */}
-       <div className="flex items-center gap-2">
-         <Label showDot dotColor="bg-green-400">
-           {currentWallet?.address?.slice(0, 6)}...{currentWallet?.address?.slice(-4)}
-         </Label>
-                 <Tooltip content="Copy address">
-           <button
-             onClick={handleCopyAddress}
-             className="text-gray-400 hover:text-gray-200 transition-all duration-200 p-1 rounded-full hover:bg-gray-700/40"
-           >
-             <Copy className="h-3 w-3" />
-           </button>
-         </Tooltip>
-
+      {/* Wallet Address with Copy Button - Only show on desktop */}
+      <div className="hidden sm:flex items-center gap-2">
+        <Label showDot dotColor="bg-green-400">
+          {currentWallet?.address?.slice(0, 6)}...{currentWallet?.address?.slice(-4)}
+        </Label>
+        <Tooltip content="Copy address">
+          <button
+            onClick={handleCopyAddress}
+            className="text-gray-400 hover:text-gray-200 transition-all duration-200 p-1 rounded-full hover:bg-gray-700/40"
+          >
+            <Copy className="h-3 w-3" />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Network Switcher with Radix UI */}

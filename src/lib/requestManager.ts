@@ -254,7 +254,7 @@ class RequestManager {
           }
           throw new Error('No image found in CoinGecko response');
         } catch (error) {
-          console.log(`CoinGecko failed for ${symbol}:`, error);
+          // Silently fail for CoinGecko to avoid console spam
           throw error;
         }
       },
@@ -270,12 +270,43 @@ class RequestManager {
           }
           throw new Error('Trust Wallet image not found');
         } catch (error) {
-          console.log(`Trust Wallet failed for ${symbol}:`, error);
+          // Silently fail for Trust Wallet to avoid console spam
           throw error;
         }
       },
       
-      // 3. Token Lists (for popular tokens) - using a more reliable endpoint
+      // 3. 1inch Token List (more comprehensive)
+      async () => {
+        const tokenListUrl = `https://tokens.1inch.io/v1.1/1`;
+        try {
+          const response = await this.request<{
+            [address: string]: {
+              symbol: string;
+              name: string;
+              decimals: number;
+              logoURI?: string;
+            };
+          }>(tokenListUrl, {}, {
+            cacheKey: 'token-list-1inch',
+            ttl: 1800000, // 30 minutes cache
+            retries: 1,
+            timeout: 5000,
+            rateLimit: this.imageRateLimit
+          });
+          
+          const token = response[address.toLowerCase()];
+          
+          if (token?.logoURI) {
+            return token.logoURI;
+          }
+          throw new Error('Token not found in 1inch token list');
+        } catch (error) {
+          // Silently fail for 1inch to avoid console spam
+          throw error;
+        }
+      },
+      
+      // 4. Uniswap Token List (fallback)
       async () => {
         const tokenListUrl = `https://raw.githubusercontent.com/Uniswap/token-lists/main/test/schema/tokenlist.json`;
         try {
@@ -300,9 +331,9 @@ class RequestManager {
           if (token?.logoURI) {
             return token.logoURI;
           }
-          throw new Error('Token not found in token list');
+          throw new Error('Token not found in Uniswap token list');
         } catch (error) {
-          console.log(`Token list failed for ${symbol}:`, error);
+          // Silently fail for Uniswap to avoid console spam
           throw error;
         }
       }
@@ -317,7 +348,7 @@ class RequestManager {
           return imageUrl;
         }
       } catch (error) {
-        console.log(`Source failed for ${symbol}:`, error);
+        // Silently continue to next source
         continue;
       }
     }
