@@ -85,8 +85,18 @@ export default function AddTokenModal({
   };
 
   const handleAdd = () => {
-    if (!tokenForm.symbol || !tokenForm.name || !tokenForm.address) return;
-    onAdd(tokenForm);
+    const trimmedForm = {
+      symbol: tokenForm.symbol.trim(),
+      name: tokenForm.name.trim(),
+      address: tokenForm.address.trim(),
+      decimals: tokenForm.decimals
+    };
+    
+    if (!trimmedForm.symbol || !trimmedForm.name || !trimmedForm.address) {
+      return;
+    }
+    
+    onAdd(trimmedForm);
   };
 
   const handleClose = () => {
@@ -239,7 +249,7 @@ export default function AddTokenModal({
           <Button
             onClick={handleAdd}
             loading={loading}
-            disabled={!tokenForm.symbol || !tokenForm.name || !tokenForm.address}
+            disabled={!tokenForm.symbol.trim() || !tokenForm.name.trim() || !tokenForm.address.trim()}
             className="flex-1"
           >
             Add Token

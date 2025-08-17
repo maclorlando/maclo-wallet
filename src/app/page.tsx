@@ -524,8 +524,19 @@ export default function Home() {
     }
   };
 
-  const handleAddToken = () => {
-    if (!tokenForm.symbol || !tokenForm.name || !tokenForm.address) {
+  const handleAddToken = (tokenData?: {
+    symbol: string;
+    name: string;
+    address: string;
+    decimals: number;
+  }) => {
+    // Use the passed tokenData if available, otherwise use the local tokenForm
+    const formData = tokenData || tokenForm;
+    const trimmedSymbol = formData.symbol.trim();
+    const trimmedName = formData.name.trim();
+    const trimmedAddress = formData.address.trim();
+    
+    if (!trimmedSymbol || !trimmedName || !trimmedAddress) {
       toast({
         variant: 'error',
         title: 'Error',
@@ -535,14 +546,20 @@ export default function Home() {
     }
 
     try {
-      addCustomToken(tokenForm as TokenInfoWithImage);
+      const trimmedTokenForm = {
+        ...formData,
+        symbol: trimmedSymbol,
+        name: trimmedName,
+        address: trimmedAddress
+      };
+      addCustomToken(trimmedTokenForm as TokenInfoWithImage);
       setShowAddToken(false);
       setTokenForm({ symbol: '', name: '', address: '', decimals: 18 });
       refreshStoredData();
       toast({
         variant: 'success',
         title: 'Token Added',
-        description: `${tokenForm.symbol} has been added to your wallet!`,
+        description: `${trimmedSymbol} has been added to your wallet!`,
       });
     } catch (error) {
       toast({
