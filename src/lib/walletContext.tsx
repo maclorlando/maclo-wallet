@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import { 
   WalletData, 
   TokenInfo, 
@@ -67,11 +67,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
 
   // Account names functionality
-  const getAccountName = (address: string): string => {
+  const getAccountName = useCallback((address: string): string => {
     return accountNames[address] || `Account ${allAccounts.findIndex(acc => acc.address === address) + 1}`;
-  };
+  }, [accountNames, allAccounts]);
 
-  const setAccountName = (address: string, name: string) => {
+  const setAccountName = useCallback((address: string, name: string) => {
     const newAccountNames = { ...accountNames, [address]: name };
     setAccountNames(newAccountNames);
     
@@ -79,22 +79,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
       localStorage.setItem('accountNames', JSON.stringify(newAccountNames));
     }
-  };
+  }, [accountNames]);
 
-  const getCurrentAccountName = (): string => {
+  const getCurrentAccountName = useCallback((): string => {
     if (!currentWallet?.address) return 'Wallet';
     return getAccountName(currentWallet.address);
-  };
+  }, [currentWallet?.address, getAccountName]);
 
-  const refreshStoredData = () => {
+  const refreshStoredData = useCallback(() => {
     setStoredAddresses(getStoredWalletAddresses());
     setCustomTokens(getCustomTokens());
     setCustomNFTs(getCustomNFTs());
-  };
+  }, []);
 
-  const handleNetworkChange = (network: string) => {
+  // Function to refresh balances (will be called by components)
+  const refreshBalances = useCallback(() => {
+    setIsRefreshingBalances(true);
+    // This will trigger a re-render in components that depend on balances
+    setTimeout(() => setIsRefreshingBalances(false), 1000);
+  }, []);
+
+  const handleNetworkChange = useCallback((network: string) => {
     if (NETWORKS[network]) {
-      setCurrentNetwork(network);
       setCurrentNetworkState(network);
       setCurrentNetworkConfig(NETWORKS[network]);
       // Refresh tokens for the new network
@@ -102,10 +108,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // Trigger balance refresh for the new network
       refreshBalances();
     }
-  };
+  }, [refreshStoredData, refreshBalances]);
 
   // Function to switch between accounts
-  const switchAccount = (accountIndex: number) => {
+  const switchAccount = useCallback((accountIndex: number) => {
     if (allAccounts[accountIndex]) {
       setCurrentWallet(allAccounts[accountIndex]);
       setCurrentAccountIndex(accountIndex);
@@ -115,10 +121,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
       // Note: Toast notification will be handled in the AccountManager component
     }
-  };
+  }, [allAccounts]);
 
   // Function to add a new account
-  const addAccount = () => {
+  const addAccount = useCallback(() => {
     if (currentWallet?.mnemonic) {
       const newAccountIndex = allAccounts.length;
       try {
@@ -132,25 +138,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         console.error('Error adding new account:', error);
       }
     }
-  };
-
-  // Function to refresh balances (will be called by components)
-  const refreshBalances = () => {
-    setIsRefreshingBalances(true);
-    // This will trigger a re-render in components that depend on balances
-    setTimeout(() => setIsRefreshingBalances(false), 1000);
-  };
+  }, [currentWallet?.mnemonic, allAccounts.length, switchAccount]);
 
   // NFT management functions
-  const addNFT = (nftInfo: NFTInfo) => {
+  const addNFT = useCallback((nftInfo: NFTInfo) => {
     addCustomNFT(nftInfo);
     refreshStoredData();
-  };
+  }, [refreshStoredData]);
 
-  const removeNFT = (address: string, tokenId: string) => {
+  const removeNFT = useCallback((address: string, tokenId: string) => {
     removeCustomNFT(address, tokenId);
     refreshStoredData();
-  };
+  }, [refreshStoredData]);
 
   // Load all accounts from mnemonic when wallet is unlocked
   useEffect(() => {
@@ -197,7 +196,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     currentWallet,
     setCurrentWallet,
     storedAddresses,
@@ -224,7 +223,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // NFT management functionality
     addNFT,
     removeNFT,
-  };
+  }), [
+    currentWallet,
+    storedAddresses,
+    customTokens,
+    customNFTs,
+    refreshStoredData,
+    isWalletUnlocked,
+    currentNetwork,
+    handleNetworkChange,
+    currentNetworkConfig,
+    allAccounts,
+    currentAccountIndex,
+    switchAccount,
+    addAccount,
+    refreshBalances,
+    isRefreshingBalances,
+    getAccountName,
+    setAccountName,
+    getCurrentAccountName,
+    addNFT,
+    removeNFT,
+  ]);
 
   return (
     <WalletContext.Provider value={value}>

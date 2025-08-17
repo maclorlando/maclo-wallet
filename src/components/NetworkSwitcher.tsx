@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useWallet } from '@/lib/walletContext';
 import { ChevronDownIcon } from '@heroicons/react/24/outline';
 import { Copy } from 'lucide-react';
@@ -12,9 +12,11 @@ export default function NetworkSwitcher() {
   const { toast } = useToast();
   const { currentWallet, currentNetwork, setCurrentNetwork, availableNetworks } = useWallet();
 
-  const currentNetworkConfig = availableNetworks[currentNetwork];
+  const currentNetworkConfig = useMemo(() => {
+    return availableNetworks[currentNetwork] || availableNetworks['base-sepolia'];
+  }, [availableNetworks, currentNetwork]);
 
-  const handleCopyAddress = async () => {
+  const handleCopyAddress = useCallback(async () => {
     if (currentWallet?.address) {
       try {
         await navigator.clipboard.writeText(currentWallet.address);
@@ -32,16 +34,18 @@ export default function NetworkSwitcher() {
         });
       }
     }
-  };
+  }, [currentWallet?.address, toast]);
 
-  const handleNetworkChange = (network: string) => {
-    setCurrentNetwork(network);
-    toast({
-      variant: 'info',
-      title: 'Network Switched',
-      description: `Switched to ${availableNetworks[network].name}`,
-    });
-  };
+  const handleNetworkChange = useCallback((network: string) => {
+    if (availableNetworks[network]) {
+      setCurrentNetwork(network);
+      toast({
+        variant: 'info',
+        title: 'Network Switched',
+        description: `Switched to ${availableNetworks[network].name}`,
+      });
+    }
+  }, [setCurrentNetwork, availableNetworks, toast]);
 
   return (
     <div className="flex items-center gap-3">
