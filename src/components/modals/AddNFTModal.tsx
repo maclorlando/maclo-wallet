@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Modal } from '@/components/ui';
 import { NFTInfo } from '@/lib/walletManager';
 import { useToast } from '@/hooks/useToast';
-import { requestManager } from '@/lib/requestManager';
 
 interface AddNFTModalProps {
   open: boolean;
@@ -71,7 +70,7 @@ export default function AddNFTModal({ open, onOpenChange, onAdd, loading = false
     setIsLoadingMetadata(true);
     try {
       // Try to fetch metadata from the NFT contract
-      const metadata = await fetchNFTMetadataFromContract(formData.address, formData.tokenId);
+      const metadata = await fetchNFTMetadataFromContract();
       
       if (metadata) {
         setFormData(prev => ({
@@ -99,7 +98,7 @@ export default function AddNFTModal({ open, onOpenChange, onAdd, loading = false
     }
   };
 
-  const fetchNFTMetadataFromContract = async (address: string, tokenId: string): Promise<NFTMetadata | null> => {
+  const fetchNFTMetadataFromContract = async (): Promise<NFTMetadata | null> => {
     try {
       // This is a simplified version - in a real implementation, you'd need to:
       // 1. Call tokenURI() on the contract to get the metadata URI

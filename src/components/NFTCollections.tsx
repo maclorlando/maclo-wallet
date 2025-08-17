@@ -109,7 +109,7 @@ export default function NFTCollections({ onAddNFT, onSendNFT }: NFTCollectionsPr
           <div className="jupiter-empty-icon">🖼️</div>
           <h4 className="jupiter-empty-title">No NFTs Found</h4>
           <p className="jupiter-empty-description">
-            You haven't added any NFTs to your wallet yet.
+            You haven&apos;t added any NFTs to your wallet yet.
           </p>
           <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-primary">
             <Plus className="h-4 w-4 mr-2" />

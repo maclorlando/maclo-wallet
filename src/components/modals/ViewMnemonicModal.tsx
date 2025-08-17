@@ -102,7 +102,7 @@ export function ViewMnemonicModal({
         title: 'Mnemonic Unlocked',
         description: 'Your mnemonic phrase is now visible',
       });
-    } catch (error) {
+    } catch {
       setIsUnlocking(false);
       setUnlockProgress(0);
       toast({

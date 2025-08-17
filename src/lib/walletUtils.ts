@@ -49,6 +49,7 @@ const ERC20_TRANSFER_SIGNATURE = "0xa9059cbb";
 const ERC721_TRANSFER_FROM_SIGNATURE = "0x23b872dd";
 
 // ERC721 safeTransferFrom function signature: safeTransferFrom(address,address,uint256)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ERC721_SAFE_TRANSFER_FROM_SIGNATURE = "0x42842e0e";
 
 // Function to encode ERC20 transfer data

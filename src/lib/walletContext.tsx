@@ -17,9 +17,7 @@ import {
   setCurrentNetwork,
   initializeNetwork,
   NETWORKS,
-  getStoredWalletInfo,
-  getAllAccountsFromMnemonic,
-  decryptMnemonic
+  getAllAccountsFromMnemonic
 } from './walletManager';
 
 interface WalletContextType {

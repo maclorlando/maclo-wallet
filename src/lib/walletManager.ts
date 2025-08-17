@@ -5,6 +5,7 @@ import { ec as EC } from 'elliptic';
 import hdkey from 'hdkey';
 
 // Initialize elliptic curve
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ec = new EC('secp256k1');
 
 export interface WalletData {

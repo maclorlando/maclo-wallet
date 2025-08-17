@@ -64,7 +64,6 @@ export default function Home() {
     setCurrentWallet, 
     storedAddresses, 
     customTokens, 
-    customNFTs,
     addNFT,
     refreshStoredData,
     isWalletUnlocked,
@@ -98,8 +97,6 @@ export default function Home() {
   const [showViewMnemonic, setShowViewMnemonic] = useState(false);
   
   const [newWalletData, setNewWalletData] = useState<NewWalletData | null>(null);
-  const [password, setPassword] = useState('');
-  const [mnemonic, setMnemonic] = useState('');
 
   
   const [tokenForm, setTokenForm] = useState({
@@ -183,8 +180,8 @@ export default function Home() {
     }
   }, [currentNetworkConfig.rpcUrl, currentWallet?.address, currentNetwork]);
 
-  // Famous tokens for autocomplete (network-specific)
-  const getFamousTokens = () => {
+    // Memoize expensive computations
+  const famousTokens = useMemo(() => {
     if (currentNetwork === 'base-sepolia') {
       return [
         { symbol: 'USDC', name: 'USD Coin', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', decimals: 6, logoURI: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png' },
@@ -196,9 +193,9 @@ export default function Home() {
         { symbol: 'UNI', name: 'Uniswap', address: '0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb', decimals: 18, logoURI: 'https://cryptologos.cc/logos/uniswap-uni-logo.png' },
         { symbol: 'AAVE', name: 'Aave', address: '0x2D3DCA0EF793C547F11fA4e8e98C4C3A76bc8F5', decimals: 18, logoURI: 'https://cryptologos.cc/logos/aave-aave-logo.png' }
       ];
-         } else if (currentNetwork === 'ethereum-sepolia') {
-       return [
-         { symbol: 'USDC', name: 'USD Coin (Circle)', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', decimals: 6, logoURI: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png' },
+    } else if (currentNetwork === 'ethereum-sepolia') {
+      return [
+        { symbol: 'USDC', name: 'USD Coin (Circle)', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', decimals: 6, logoURI: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png' },
         { symbol: 'USDT', name: 'Tether USD', address: '0x7169D38820dfd117C3FA1f22a697dba58d90BA06', decimals: 6, logoURI: 'https://cryptologos.cc/logos/tether-usdt-logo.png' },
         { symbol: 'WETH', name: 'Wrapped Ether', address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14', decimals: 18, logoURI: 'https://cryptologos.cc/logos/weth-logo.png' },
         { symbol: 'DAI', name: 'Dai Stablecoin', address: '0x68194a729C2450ad26072b3D33ADaCbcef39D574', decimals: 18, logoURI: 'https://cryptologos.cc/logos/multi-collateral-dai-dai-logo.png' },
@@ -209,10 +206,7 @@ export default function Home() {
       ];
     }
     return [];
-  };
-
-  // Memoize expensive computations
-  const famousTokens = useMemo(() => getFamousTokens(), [currentNetwork]);
+  }, [currentNetwork]);
 
 
 
@@ -344,7 +338,7 @@ export default function Home() {
        setIsLoadingBalance(false);
        isFetchingRef.current = false;
      }
-   }, [currentWallet, currentNetwork, currentNetworkConfig, customTokens, toast, getTokenBalance]);
+   }, [currentWallet, customTokens, toast, getTokenBalance]);
 
   // Optimized auto-refresh with proper cleanup
   useEffect(() => {
@@ -644,7 +638,7 @@ export default function Home() {
   // Refresh stored data on component mount
   useEffect(() => {
     refreshStoredData();
-  }, []); // Empty dependency array - only run once on mount
+  }, [refreshStoredData]); // Include refreshStoredData in dependencies
 
      if (!isWalletUnlocked) {
      return (
@@ -755,7 +749,6 @@ export default function Home() {
              if (!open) {
                setShowNewWallet(false);
                setNewWalletData(null);
-               setPassword('');
              } else {
                setShowNewWallet(true);
              }
@@ -769,8 +762,6 @@ export default function Home() {
           onOpenChange={(open) => {
             if (!open) {
               setShowImportWallet(false);
-              setMnemonic('');
-              setPassword('');
             } else {
               setShowImportWallet(true);
             }
