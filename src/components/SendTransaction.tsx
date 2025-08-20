@@ -12,6 +12,9 @@ import {
   sendERC721NFT 
 } from '@/lib/walletUtils';
 import { useToast } from '@/hooks/useToast';
+import { blockchainEventService } from '@/lib/blockchainEvents';
+import { transactionMonitor } from '@/lib/transactionMonitor';
+import { ethers } from 'ethers';
 
 interface SendTransactionProps {
   isOpen: boolean;
@@ -39,6 +42,7 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
   const [selectedToken, setSelectedToken] = useState('');
   const [nftAddress, setNftAddress] = useState('');
   const [tokenId, setTokenId] = useState('');
+  const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
 
   // Set pre-selected token or NFT when component opens
   useEffect(() => {
@@ -51,8 +55,22 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
         setNftAddress(preSelectedNFT.address);
         setTokenId(preSelectedNFT.tokenId);
       }
+    } else {
+      // Reset form when modal closes
+      setToAddress('');
+      setAmount('');
+      setSelectedToken('');
+      setNftAddress('');
+      setTokenId('');
+      setTransferType('ETH');
+      
+      // Cleanup transaction monitoring
+      if (currentTxHash) {
+        transactionMonitor.unsubscribe(currentTxHash);
+        setCurrentTxHash(null);
+      }
     }
-  }, [isOpen, preSelectedToken, preSelectedNFT]);
+  }, [isOpen, preSelectedToken, preSelectedNFT, currentTxHash]);
 
   const handleSendTransaction = async () => {
     if (!toAddress || !amount || !currentWallet) {
@@ -74,6 +92,20 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
     });
 
     try {
+      // Get token info if needed
+      let selectedTokenInfo = null;
+      if (transferType !== 'ETH' && selectedToken) {
+        selectedTokenInfo = customTokens.find(token => token.address === selectedToken);
+        if (!selectedTokenInfo) {
+          toast({
+            variant: 'error',
+            title: 'Error',
+            description: 'Selected token not found',
+          });
+          return;
+        }
+      }
+
       let txHash: string;
 
       switch (transferType) {
@@ -85,21 +117,11 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
           }, toAddress, amount);
           break;
         case 'ERC20':
-          if (!selectedToken) {
+          if (!selectedToken || !selectedTokenInfo) {
             toast({
               variant: 'error',
               title: 'Error',
               description: 'Please select a token',
-            });
-            return;
-          }
-          // Find the selected token to get its decimals
-          const selectedTokenInfo = customTokens.find(token => token.address === selectedToken);
-          if (!selectedTokenInfo) {
-            toast({
-              variant: 'error',
-              title: 'Error',
-              description: 'Selected token not found',
             });
             return;
           }
@@ -148,14 +170,94 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
       if (receipt && receipt.status === '0x1') {
         toast({
           variant: 'success',
-          title: 'Transaction Successful',
-          description: `Transaction completed! Hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}`,
+          title: 'Transaction Submitted',
+          description: `Transaction submitted! Hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}`,
         });
-        // Refresh balances after successful transaction
-        setTimeout(() => {
-          // Trigger balance refresh by setting the flag
-          refreshBalances();
-        }, 2000); // Wait 2 seconds for blockchain to update
+
+        // Add transaction to monitor for proper balance updates
+        await transactionMonitor.addTransactionToMonitor(
+          txHash,
+          currentNetworkConfig.name || 'base-sepolia',
+          currentNetworkConfig.rpcUrl,
+          {
+            hash: txHash,
+            from: currentWallet.address,
+            to: toAddress,
+            value: transferType === 'ETH' ? ethers.parseEther(amount).toString() : '0',
+            data: transferType === 'ETH' ? '0x' : '0x', // Will be filled for tokens
+            type: transferType === 'ETH' ? 'ETH' : transferType === 'ERC20' ? 'ERC20' : 'ERC721',
+            tokenAddress: transferType !== 'ETH' ? selectedToken : undefined,
+            tokenSymbol: transferType !== 'ETH' ? selectedTokenInfo?.symbol : undefined,
+            amount: amount
+          }
+        );
+
+        // Store current transaction hash for cleanup
+        setCurrentTxHash(txHash);
+
+                 // Subscribe to transaction status updates
+         transactionMonitor.subscribe(txHash, (status) => {
+           if (status.status === 'confirmed') {
+             toast({
+               variant: 'success',
+               title: 'Transaction Confirmed',
+               description: `Transaction confirmed! Waiting for balance update...`,
+             });
+             
+             // Close the modal after successful confirmation
+             onClose();
+             
+             // Trigger smart polling for balance change detection
+             // This will poll the actual balance until it changes, up to 20 seconds
+             if (transferType === 'ERC20' && selectedTokenInfo) {
+               // Get current balance before polling
+               const getCurrentTokenBalance = async () => {
+                 try {
+                   const provider = new ethers.JsonRpcProvider(currentNetworkConfig.rpcUrl);
+                   const contract = new ethers.Contract(
+                     selectedToken,
+                     ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
+                     provider
+                   );
+                   const balance = await contract.balanceOf(currentWallet.address);
+                   const decimals = await contract.decimals().catch(() => selectedTokenInfo.decimals);
+                   return ethers.formatUnits(balance, decimals);
+                 } catch (error) {
+                   console.warn('Error getting current token balance:', error);
+                   return '0';
+                 }
+               };
+               
+               getCurrentTokenBalance().then(currentBalance => {
+                 // Import and trigger balance polling
+                 import('@/lib/walletContext').then(({ useWallet }) => {
+                   // We'll trigger this via a custom event since we can't access the context here
+                   window.dispatchEvent(new CustomEvent('triggerBalancePolling', {
+                     detail: {
+                       tokenAddress: selectedToken,
+                       expectedOldBalance: currentBalance,
+                       transferType: 'sent'
+                     }
+                   }));
+                 });
+               });
+             } else if (transferType === 'ETH') {
+               // For ETH transactions, trigger polling without specific balance check
+               window.dispatchEvent(new CustomEvent('triggerBalancePolling', {
+                 detail: {
+                   transferType: 'sent'
+                 }
+               }));
+             }
+           } else if (status.status === 'failed') {
+             toast({
+               variant: 'error',
+               title: 'Transaction Failed',
+               description: `Transaction failed or was reverted.`,
+             });
+           }
+         });
+
       } else if (receipt && receipt.status === '0x0') {
         throw new Error('Transaction was reverted by the blockchain');
       } else {

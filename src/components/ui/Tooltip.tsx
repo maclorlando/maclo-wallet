@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 interface TooltipProps {
   children: React.ReactNode;
-  content: string;
+  content: React.ReactNode;
   side?: 'top' | 'right' | 'bottom' | 'left';
   align?: 'start' | 'center' | 'end';
   delayDuration?: number;
@@ -37,7 +37,9 @@ export function Tooltip({
               className
             )}
           >
-            {content}
+            <div className="p-2">
+              {content}
+            </div>
             <TooltipPrimitive.Arrow className="fill-gray-900" />
           </TooltipPrimitive.Content>
         </TooltipPrimitive.Portal>

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, ModalBody, ModalFooter, Button } from '@/components/ui';
 import SafeImage from '@/components/SafeImage';
+import { coingeckoService } from '@/lib/coingeckoService';
 
 interface TokenSuggestion {
   symbol: string;
@@ -10,6 +11,15 @@ interface TokenSuggestion {
   address: string;
   decimals: number;
   logoURI?: string;
+}
+
+interface CoinGeckoSuggestion {
+  id: string;
+  name: string;
+  symbol: string;
+  market_cap_rank: number;
+  thumb: string;
+  large: string;
 }
 
 interface AddTokenModalProps {
@@ -40,6 +50,8 @@ export default function AddTokenModal({
   });
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [coinGeckoSuggestions, setCoinGeckoSuggestions] = useState<CoinGeckoSuggestion[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Auto-fill fields when contract address matches a known token
   useEffect(() => {
@@ -60,6 +72,27 @@ export default function AddTokenModal({
     }
   }, [tokenForm.address, tokenSuggestions]);
 
+  // Search CoinGecko for token suggestions
+  const searchCoinGecko = async (query: string) => {
+    if (query.length < 2) {
+      setCoinGeckoSuggestions([]);
+      return;
+    }
+
+    try {
+      setIsSearching(true);
+      const searchResults = await coingeckoService.searchCoins(query);
+      if (searchResults?.coins) {
+        setCoinGeckoSuggestions(searchResults.coins.slice(0, 5)); // Limit to top 5 results
+      }
+    } catch (error) {
+      console.warn('Failed to search CoinGecko:', error);
+      setCoinGeckoSuggestions([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   const handleInputChange = (field: keyof typeof tokenForm, value: string) => {
     setTokenForm(prev => ({ ...prev, [field]: value }));
     
@@ -67,6 +100,8 @@ export default function AddTokenModal({
     if (field === 'symbol' || field === 'name') {
       setSearchQuery(value);
       setShowSuggestions(value.length > 0);
+      // Search CoinGecko for better suggestions
+      searchCoinGecko(value);
     } else if (field === 'address') {
       setSearchQuery(value);
       setShowSuggestions(value.length > 0);
@@ -145,39 +180,98 @@ export default function AddTokenModal({
                 placeholder="Search by symbol, name, or contract address..."
                 className="jupiter-input"
               />
-              {showSuggestions && filteredSuggestions.length > 0 && (
+              {showSuggestions && (filteredSuggestions.length > 0 || coinGeckoSuggestions.length > 0) && (
                 <div className="absolute z-10 w-full mt-2 token-suggestions-dropdown max-h-48 overflow-y-auto">
-                  {filteredSuggestions.map((token, index) => (
-                    <div
-                      key={`${token.address}-${index}`}
-                      onClick={() => handleSuggestionClick(token)}
-                      className="px-4 py-3 cursor-pointer text-sm text-white border-b border-white/10 last:border-b-0 flex items-center token-suggestion-item"
-                    >
-                      <div className="h-8 w-8 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-700">
-                        {token.logoURI ? (
-                          <SafeImage 
-                            src={token.logoURI} 
-                            alt={token.symbol}
-                            width={32}
-                            height={32}
-                            className="h-8 w-8 object-cover rounded-full"
-                            fallbackText={token.symbol}
-                          />
-                        ) : (
-                          <div className="h-8 w-8 flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">{token.symbol}</span>
+                  {/* CoinGecko Suggestions */}
+                  {coinGeckoSuggestions.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 text-xs font-medium text-white/60 bg-white/5 border-b border-white/10">
+                        Popular Tokens
+                      </div>
+                      {coinGeckoSuggestions.map((token, index) => (
+                        <div
+                          key={`coingecko-${token.id}-${index}`}
+                          onClick={() => {
+                            // For CoinGecko suggestions, we can't auto-fill address
+                            // but we can fill symbol and name
+                            setTokenForm(prev => ({
+                              ...prev,
+                              symbol: token.symbol.toUpperCase(),
+                              name: token.name
+                            }));
+                            setSearchQuery('');
+                            setShowSuggestions(false);
+                          }}
+                          className="px-4 py-3 cursor-pointer text-sm text-white border-b border-white/10 last:border-b-0 flex items-center token-suggestion-item"
+                        >
+                          <div className="h-8 w-8 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-700">
+                            <SafeImage 
+                              src={token.thumb} 
+                              alt={token.symbol}
+                              width={32}
+                              height={32}
+                              className="h-8 w-8 object-cover rounded-full"
+                              fallbackText={token.symbol}
+                            />
                           </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-white truncate">{token.symbol}</div>
-                        <div className="text-xs text-white/60 truncate">{token.name}</div>
-                        <div className="text-xs text-white/40 font-mono truncate">
-                          {token.address.slice(0, 6)}...{token.address.slice(-4)}
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-white truncate">{token.symbol.toUpperCase()}</div>
+                            <div className="text-xs text-white/60 truncate">{token.name}</div>
+                            <div className="text-xs text-white/40">
+                              Rank #{token.market_cap_rank}
+                            </div>
+                          </div>
                         </div>
+                      ))}
+                    </>
+                  )}
+                  
+                  {/* Local Token Suggestions */}
+                  {filteredSuggestions.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 text-xs font-medium text-white/60 bg-white/5 border-b border-white/10">
+                        Network Tokens
                       </div>
+                      {filteredSuggestions.map((token, index) => (
+                        <div
+                          key={`${token.address}-${index}`}
+                          onClick={() => handleSuggestionClick(token)}
+                          className="px-4 py-3 cursor-pointer text-sm text-white border-b border-white/10 last:border-b-0 flex items-center token-suggestion-item"
+                        >
+                          <div className="h-8 w-8 rounded-full flex items-center justify-center mr-3 overflow-hidden bg-gray-700">
+                            {token.logoURI ? (
+                              <SafeImage 
+                                src={token.logoURI} 
+                                alt={token.symbol}
+                                width={32}
+                                height={32}
+                                className="h-8 w-8 object-cover rounded-full"
+                                fallbackText={token.symbol}
+                              />
+                            ) : (
+                              <div className="h-8 w-8 flex items-center justify-center">
+                                <span className="text-white text-xs font-bold">{token.symbol}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-white truncate">{token.symbol}</div>
+                            <div className="text-xs text-white/60 truncate">{token.name}</div>
+                            <div className="text-xs text-white/40 font-mono truncate">
+                              {token.address.slice(0, 6)}...{token.address.slice(-4)}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  
+                  {isSearching && (
+                    <div className="px-4 py-3 text-sm text-white/60 flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/20 mr-2"></div>
+                      Searching...
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>

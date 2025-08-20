@@ -24,9 +24,10 @@ interface TokenContextMenuProps {
     decimals: number;
   }) => void;
   children: React.ReactNode;
+  className?: string;
 }
 
-export default function TokenContextMenu({ token, onDelete, onSend, children }: TokenContextMenuProps) {
+export default function TokenContextMenu({ token, onDelete, onSend, children, className = '' }: TokenContextMenuProps) {
   const { toast } = useToast();
 
   const handleDelete = () => {
@@ -50,7 +51,7 @@ export default function TokenContextMenu({ token, onDelete, onSend, children }: 
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <div className="cursor-pointer">
+        <div className={`cursor-pointer ${className}`}>
           {children}
         </div>
       </DropdownMenu.Trigger>

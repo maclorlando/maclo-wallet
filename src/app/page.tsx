@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useWallet } from '@/lib/walletContext';
-import SafeImage from '@/components/SafeImage';
+
 import { 
   generateNewWallet, 
   importWalletFromMnemonic, 
@@ -28,12 +28,15 @@ import {
   ViewMnemonicModal
 } from '@/components/modals';
 import AccountManager from '@/components/AccountManager';
-import TokenContextMenu from '@/components/TokenContextMenu';
+
 import NFTCollections from '@/components/NFTCollections';
+import TokenList from '@/components/TokenList';
+import MarketOverview from '@/components/MarketOverview';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Copy } from 'lucide-react';
 import { Label, ConfirmationModal, ContextMenu, ContextMenuItem } from '@/components/ui';
 import { useToast } from '@/hooks/useToast';
+import TransactionNotification from '@/components/TransactionNotification';
 import { 
   Cog6ToothIcon,
   UserIcon,
@@ -107,8 +110,7 @@ export default function Home() {
     decimals: 18
   });
 
-  // Token balances and USD values
-  const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([]);
+
   const [ethBalance, setEthBalance] = useState<string>('0.000000');
 
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
@@ -306,7 +308,7 @@ export default function Home() {
           }
         }
 
-        setTokenBalances(balances);
+
         
         // Show specific toast messages based on what was updated
         if (force && showToast) {
@@ -326,7 +328,6 @@ export default function Home() {
         }
       } else {
         // Clear token balances if no custom tokens
-        setTokenBalances([]);
         
         // Show ETH balance update toast
         if (force && showToast) {
@@ -672,6 +673,7 @@ export default function Home() {
      if (!isWalletUnlocked) {
      return (
        <div className="jupiter-container">
+         <TransactionNotification />
 
                  {/* Desktop Navigation */}
          <div className="jupiter-desktop-nav">
@@ -695,7 +697,7 @@ export default function Home() {
 
          {/* Welcome Section */}
          <div className="jupiter-welcome">
-           <h1>Welcome to Maclo Wallet</h1>
+           <h1>Maclo Wallet</h1>
            <p>Your secure Ethereum wallet</p>
            
            
@@ -829,6 +831,7 @@ export default function Home() {
 
      return (
      <div className="jupiter-container">
+       <TransactionNotification />
 
       {/* Desktop Navigation */}
       <div className="jupiter-desktop-nav">
@@ -986,74 +989,22 @@ export default function Home() {
             </div>
           </div>
 
-                                                                                       <div className="jupiter-card" onClick={() => fetchAllBalances(true, true)}>
-             <div className="jupiter-card-content">
-               <div className="jupiter-card-text">
-                 <div className="jupiter-card-title">Refresh Balances</div>
-                 <div className="jupiter-card-description">
-                   Update your token balances →
-                 </div>
-               </div>
-               <div className="jupiter-card-icons">
-                 <div className="jupiter-card-icon">🔄</div>
-                 <div className="jupiter-card-icon">📊</div>
-               </div>
-             </div>
-           </div>
+
 
            
 
            
         </div>
 
-        {/* Token Balances */}
-        {tokenBalances.length > 0 && (
-          <div className="jupiter-section-header">
-            <h3 className="jupiter-section-title">Token Balances</h3>
-            <p className="jupiter-section-subtitle">Your current token holdings</p>
-          </div>
-        )}
-
-        {tokenBalances.length > 0 && (
-          <div className="jupiter-grid jupiter-grid-2" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-            {tokenBalances.map((token) => (
-              <TokenContextMenu
-                key={`${token.address}-${token.balance}`}
-                token={token}
-                onDelete={handleRemoveToken}
-                onSend={handleSendToken}
-              >
-                <div className="jupiter-token">
-                  <div className="jupiter-token-icon">
-                    {token.imageUrl ? (
-                      <SafeImage 
-                        src={token.imageUrl} 
-                        alt={token.symbol}
-                        width={24}
-                        height={24}
-                        className="h-6 w-6 object-cover rounded-full"
-                        fallbackText={token.symbol}
-                      />
-                    ) : (
-                      <span className="text-xs font-bold">{token.symbol}</span>
-                    )}
-                  </div>
-                  <div className="jupiter-token-info">
-                    <div className="jupiter-token-symbol">{token.symbol}</div>
-                    <div className="jupiter-token-name">{token.name}</div>
-                  </div>
-                  <div className="jupiter-token-balance">
-                    <div className="jupiter-token-amount">{token.balance}</div>
-                    <div className="jupiter-token-value">${token.usdValue.toFixed(2)}</div>
-                  </div>
-                  <div className="jupiter-token-actions">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full opacity-60"></div>
-                  </div>
-                </div>
-              </TokenContextMenu>
-            ))}
-          </div>
-        )}
+                 {/* Token List and Market Overview - Side by Side */}
+         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+           <div className="w-full h-full max-w-2xl mx-auto">
+             <TokenList onSendToken={handleSendToken} />
+           </div>
+           <div className="w-full h-full max-w-2xl mx-auto">
+             <MarketOverview />
+           </div>
+         </div>
 
         {/* NFT Collections */}
         <div style={{ marginTop: '32px' }}>

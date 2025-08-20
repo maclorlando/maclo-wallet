@@ -563,15 +563,30 @@ export async function getEthBalance(address: string): Promise<string> {
 }
 
 import { requestManager } from './requestManager';
+import { coingeckoService } from './coingeckoService';
+import { getFallbackImage } from './fallbackData';
 
-// Token image fetching function with rate limiting and caching
+// Token image fetching function with CoinGecko integration
 export async function getTokenImage(symbol: string, address: string): Promise<string | undefined> {
   try {
-    return await requestManager.getImageUrl(symbol, address);
+    // First try CoinGecko API for better quality images
+    const coingeckoImage = await coingeckoService.getTokenImageByContract(address);
+    if (coingeckoImage) {
+      return coingeckoImage;
+    }
+    
+    // Fallback to existing image fetching method
+    const fallbackImage = await requestManager.getImageUrl(symbol, address);
+    if (fallbackImage) {
+      return fallbackImage;
+    }
+    
+    // Final fallback to our default images
+    return getFallbackImage(address);
   } catch (error) {
     console.error('Error fetching token image:', error);
-    // Return undefined to let SafeImage handle the fallback
-    return undefined;
+    // Return fallback image
+    return getFallbackImage(address);
   }
 }
 
