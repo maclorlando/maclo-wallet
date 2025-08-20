@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useWallet } from '@/lib/walletContext';
 import { blockchainEventService, TransactionEvent } from '@/lib/blockchainEvents';
 import { balanceMonitor, BalanceChangeEvent } from '@/lib/balanceMonitor';
@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/useToast';
 export default function TransactionNotification() {
   const { currentWallet } = useWallet();
   const { toast } = useToast();
-  const [isListening, setIsListening] = useState(false);
+
 
   useEffect(() => {
     if (!currentWallet?.address) return;
@@ -66,12 +66,10 @@ export default function TransactionNotification() {
     // Subscribe to transaction events
     blockchainEventService.subscribeToTransactions(handleTransaction);
     balanceMonitor.subscribe(handleBalanceChange);
-    setIsListening(true);
 
     return () => {
       blockchainEventService.unsubscribeFromTransactions(handleTransaction);
       balanceMonitor.unsubscribe(handleBalanceChange);
-      setIsListening(false);
     };
   }, [currentWallet?.address, toast]);
 

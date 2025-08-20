@@ -159,8 +159,9 @@ class BalanceMonitor {
           let decimals = 18;
           try {
             decimals = await contract.decimals();
-          } catch (decimalsError: any) {
-            console.debug(`Using default decimals (18) for token ${tokenAddress}:`, decimalsError?.message || 'Unknown error');
+          } catch (decimalsError: unknown) {
+            const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
+            console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
           }
           
           // Get symbol and name with fallbacks
@@ -169,14 +170,16 @@ class BalanceMonitor {
           
           try {
             symbol = await contract.symbol();
-          } catch (symbolError: any) {
-            console.debug(`Using default symbol for token ${tokenAddress}:`, symbolError?.message || 'Unknown error');
+          } catch (symbolError: unknown) {
+            const errorMessage = symbolError instanceof Error ? symbolError.message : 'Unknown error';
+            console.debug(`Using default symbol for token ${tokenAddress}:`, errorMessage);
           }
           
           try {
             name = await contract.name();
-          } catch (nameError: any) {
-            console.debug(`Using default name for token ${tokenAddress}:`, nameError?.message || 'Unknown error');
+          } catch (nameError: unknown) {
+            const errorMessage = nameError instanceof Error ? nameError.message : 'Unknown error';
+            console.debug(`Using default name for token ${tokenAddress}:`, errorMessage);
           }
          
           // Store token metadata
@@ -188,9 +191,9 @@ class BalanceMonitor {
           
           const formattedBalance = ethers.formatUnits(balance, decimals);
           tokenBalances.set(tokenAddress, formattedBalance);
-        } catch (error: any) {
+        } catch (error: unknown) {
           // Handle specific error types
-          const errorMessage = error?.message || '';
+          const errorMessage = error instanceof Error ? error.message : '';
           
           if (errorMessage.includes('ENS') || 
               errorMessage.includes('network does not support') ||
@@ -328,9 +331,9 @@ class BalanceMonitor {
             // Trigger fast monitoring for more frequent checks
             this.recentChangeDetected = true;
           }
-        } catch (error: any) {
+        } catch (error: unknown) {
           // Handle specific error types
-          const errorMessage = error?.message || '';
+          const errorMessage = error instanceof Error ? error.message : '';
           
           if (errorMessage.includes('ENS') || 
               errorMessage.includes('network does not support') ||

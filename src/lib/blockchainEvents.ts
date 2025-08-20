@@ -114,8 +114,8 @@ class BlockchainEventService {
       
       if (pendingTxs && pendingTxs.pending) {
         for (const [fromAddress, txs] of Object.entries(pendingTxs.pending)) {
-          for (const [nonce, tx] of Object.entries(txs as any)) {
-            const transaction = tx as any;
+          for (const [nonce, tx] of Object.entries(txs as Record<string, unknown>)) {
+            const transaction = tx as Record<string, unknown>;
             
             // Check if this transaction is coming to our address
             if (transaction.to && transaction.to.toLowerCase() === address.toLowerCase()) {
@@ -358,7 +358,6 @@ class BlockchainEventService {
 
   // Manually trigger a balance check
   public async triggerBalanceCheck(address: string, network: string, rpcUrl: string) {
-    const provider = this.getProvider(network, rpcUrl);
     this.emitBalanceUpdate(address);
   }
 }

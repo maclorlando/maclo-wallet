@@ -122,7 +122,7 @@ const tokenMapping: Record<string, string> = {
 };
 
 // Helper function to get fallback token data
-export function getFallbackTokenData(symbol: string, address: string) {
+export function getFallbackTokenData(symbol: string) {
   const lowerSymbol = symbol.toLowerCase();
   const upperSymbol = symbol.toUpperCase();
   

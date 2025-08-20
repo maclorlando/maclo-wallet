@@ -15,14 +15,13 @@ import {
   initializeDefaultTokens,
   migrateStoredTokens,
   getCurrentNetwork,
-  setCurrentNetwork,
   initializeNetwork,
   NETWORKS,
   getAllAccountsFromMnemonic
 } from './walletManager';
-import { blockchainEventService, TransactionEvent, BalanceUpdateEvent, TransactionEventCallback, BalanceUpdateEventCallback } from './blockchainEvents';
+import { blockchainEventService, TransactionEvent, BalanceUpdateEvent } from './blockchainEvents';
 import { transactionMonitor } from './transactionMonitor';
-import { balanceMonitor, BalanceChangeEvent, BalanceChangeCallback } from './balanceMonitor';
+import { balanceMonitor, BalanceChangeEvent } from './balanceMonitor';
 
 interface WalletContextType {
   currentWallet: WalletData | null;
@@ -107,19 +106,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const handleTransactionEvent = useCallback((event: TransactionEvent) => {
     console.log('Transaction event received:', event);
     
-    // Show notification for received transactions
-    if (event.type === 'received') {
-      // Import toast dynamically to avoid circular dependencies
-      import('@/hooks/useToast').then(({ useToast }) => {
-        const { toast } = useToast();
-        toast({
-          variant: 'success',
-          title: 'Token Received!',
-          description: `You received ${event.amount} ${event.tokenSymbol}`,
-        });
-      }).catch(console.error);
-    }
-    
     // Don't refresh balances here - let the balance monitor handle it
     // The balance monitor will detect actual balance changes and trigger refresh
   }, []);
@@ -176,7 +162,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           // Check ETH balance
           const provider = new ethers.JsonRpcProvider(currentNetworkConfig.rpcUrl);
           const balance = await provider.getBalance(currentWallet.address);
-          const currentBalance = ethers.formatEther(balance);
           
           // For ETH, we don't have an expected old balance, so just refresh after first check
           console.log('ETH balance check, refreshing UI...');
@@ -431,7 +416,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     // Listen for custom balance polling events from SendTransaction component
     const handleBalancePollingEvent = (event: CustomEvent) => {
-      const { tokenAddress, expectedOldBalance, transferType } = event.detail;
+      const { tokenAddress, expectedOldBalance } = event.detail;
       console.log('Balance polling event received:', event.detail);
       
       if (tokenAddress && expectedOldBalance) {
@@ -486,7 +471,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       transactionMonitor.stopMonitoring();
       balanceMonitor.stopMonitoring();
     };
-  }, [currentWallet?.address, currentNetwork, currentNetworkConfig.rpcUrl, isWalletUnlocked]);
+  }, [currentWallet?.address, currentNetwork, currentNetworkConfig.rpcUrl, isWalletUnlocked, customTokens]);
 
   const value = useMemo(() => ({
     currentWallet,

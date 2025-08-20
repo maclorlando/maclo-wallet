@@ -347,7 +347,7 @@ class RequestManager {
           this.cacheResponse(cacheKey, imageUrl, 3600000); // 1 hour cache for successful image URLs
           return imageUrl;
         }
-      } catch (error) {
+      } catch {
         // Silently continue to next source
         continue;
       }

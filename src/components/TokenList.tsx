@@ -51,7 +51,7 @@ export default function TokenList({ className = '', onSendToken }: TokenListProp
         title: 'Data Refreshed',
         description: 'Token prices and balances updated successfully!',
       });
-    } catch (error) {
+    } catch {
       toast({
         variant: 'error',
         title: 'Refresh Failed',

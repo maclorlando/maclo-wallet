@@ -274,7 +274,7 @@ export default function Home() {
               if (Number(balance) > 0) {
                 try {
                   imageUrl = await getTokenImage(token.symbol, token.address);
-                } catch (error) {
+                } catch {
                   // Silently fallback to existing logoURI if available
                   imageUrl = token.logoURI;
                 }
@@ -585,18 +585,7 @@ export default function Home() {
 
 
 
-  const handleRemoveToken = (address: string) => {
-    try {
-      removeCustomToken(address);
-      refreshStoredData();
-    } catch (error) {
-      toast({
-        variant: 'error',
-        title: 'Error',
-        description: 'Error removing token: ' + error,
-      });
-    }
-  };
+
 
   const handleSendToken = (token: TokenBalance) => {
     // Set the pre-selected token and open send transaction modal

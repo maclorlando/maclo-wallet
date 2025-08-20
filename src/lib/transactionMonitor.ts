@@ -76,8 +76,7 @@ class TransactionMonitor {
   public async addTransactionToMonitor(
     txHash: string, 
     network: string, 
-    rpcUrl: string,
-    details?: TransactionDetails
+    rpcUrl: string
   ) {
     try {
       const provider = this.getProvider(network, rpcUrl);
@@ -94,8 +93,9 @@ class TransactionMonitor {
 
       // Immediately check the transaction status
       await this.checkTransactionStatus(txHash, provider);
-    } catch (error: any) {
-      console.warn(`Failed to add transaction ${txHash} to monitor:`, error?.message || 'Unknown error');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.warn(`Failed to add transaction ${txHash} to monitor:`, errorMessage);
     }
   }
 

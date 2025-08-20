@@ -12,7 +12,7 @@ import {
   sendERC721NFT 
 } from '@/lib/walletUtils';
 import { useToast } from '@/hooks/useToast';
-import { blockchainEventService } from '@/lib/blockchainEvents';
+
 import { transactionMonitor } from '@/lib/transactionMonitor';
 import { ethers } from 'ethers';
 
@@ -33,7 +33,7 @@ interface SendTransactionProps {
 
 export default function SendTransaction({ isOpen, onClose, preSelectedToken, preSelectedNFT }: SendTransactionProps) {
   const { toast } = useToast();
-  const { currentWallet, currentNetworkConfig, refreshBalances, customTokens } = useWallet();
+  const { currentWallet, currentNetworkConfig, customTokens } = useWallet();
   
   const [toAddress, setToAddress] = useState('');
   const [amount, setAmount] = useState('');
@@ -229,17 +229,14 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
                };
                
                getCurrentTokenBalance().then(currentBalance => {
-                 // Import and trigger balance polling
-                 import('@/lib/walletContext').then(({ useWallet }) => {
-                   // We'll trigger this via a custom event since we can't access the context here
-                   window.dispatchEvent(new CustomEvent('triggerBalancePolling', {
-                     detail: {
-                       tokenAddress: selectedToken,
-                       expectedOldBalance: currentBalance,
-                       transferType: 'sent'
-                     }
-                   }));
-                 });
+                 // Trigger balance polling via custom event
+                 window.dispatchEvent(new CustomEvent('triggerBalancePolling', {
+                   detail: {
+                     tokenAddress: selectedToken,
+                     expectedOldBalance: currentBalance,
+                     transferType: 'sent'
+                   }
+                 }));
                });
              } else if (transferType === 'ETH') {
                // For ETH transactions, trigger polling without specific balance check
