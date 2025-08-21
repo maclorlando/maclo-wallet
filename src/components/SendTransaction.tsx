@@ -178,18 +178,7 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
         await transactionMonitor.addTransactionToMonitor(
           txHash,
           currentNetworkConfig.name || 'base-sepolia',
-          currentNetworkConfig.rpcUrl,
-          {
-            hash: txHash,
-            from: currentWallet.address,
-            to: toAddress,
-            value: transferType === 'ETH' ? ethers.parseEther(amount).toString() : '0',
-            data: transferType === 'ETH' ? '0x' : '0x', // Will be filled for tokens
-            type: transferType === 'ETH' ? 'ETH' : transferType === 'ERC20' ? 'ERC20' : 'ERC721',
-            tokenAddress: transferType !== 'ETH' ? selectedToken : undefined,
-            tokenSymbol: transferType !== 'ETH' ? selectedTokenInfo?.symbol : undefined,
-            amount: amount
-          }
+          currentNetworkConfig.rpcUrl
         );
 
         // Store current transaction hash for cleanup

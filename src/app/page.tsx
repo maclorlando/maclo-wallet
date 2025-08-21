@@ -9,7 +9,6 @@ import {
   encryptMnemonic, 
   storeEncryptedWallet, 
   addCustomToken, 
-  removeCustomToken, 
   getEthBalance,
   TokenInfoWithImage,
   NFTInfo,

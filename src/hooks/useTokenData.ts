@@ -210,7 +210,7 @@ export function useTokenData() {
       }
       
       // Use fallback data when API fails
-      const fallbackToken = getFallbackTokenData(token.symbol, token.address);
+      const fallbackToken = getFallbackTokenData(token.symbol);
       tokenData.price = fallbackToken.current_price;
       tokenData.priceChange24h = fallbackToken.price_change_percentage_24h;
       tokenData.priceChangePercentage24h = fallbackToken.price_change_percentage_24h;

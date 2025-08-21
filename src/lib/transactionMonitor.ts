@@ -128,8 +128,8 @@ class TransactionMonitor {
   // Check status of a specific transaction
   private async checkTransactionStatus(txHash: string, provider: ethers.JsonRpcProvider) {
     try {
-      // Validate provider connection
-      if (!provider || !provider.connection) {
+      // Validate provider
+      if (!provider) {
         console.warn('Invalid provider for transaction status check');
         return;
       }
@@ -141,10 +141,19 @@ class TransactionMonitor {
 
       if (receipt) {
         // Transaction has been mined
+        let confirmations = 0;
+        try {
+          if (typeof receipt.confirmations === 'function') {
+            confirmations = await receipt.confirmations();
+          }
+        } catch {
+          confirmations = 0;
+        }
+        
         const newStatus: TransactionStatus = {
           hash: txHash,
           status: receipt.status === 1 ? 'confirmed' : 'failed',
-          confirmations: receipt.confirmations || 0,
+          confirmations,
           blockNumber: receipt.blockNumber,
           timestamp: Date.now()
         };

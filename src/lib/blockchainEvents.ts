@@ -95,10 +95,10 @@ class BlockchainEventService {
         if (typeof tx === 'string') continue; // Skip transaction hashes
 
         // Check if this transaction involves our address
-        if (tx.from?.toLowerCase() === address.toLowerCase() || 
-            tx.to?.toLowerCase() === address.toLowerCase()) {
+        if ((tx as ethers.TransactionResponse).from?.toLowerCase() === address.toLowerCase() || 
+            (tx as ethers.TransactionResponse).to?.toLowerCase() === address.toLowerCase()) {
           
-          await this.processTransaction(provider, tx, address);
+          await this.processTransaction(provider, tx as ethers.TransactionResponse, address);
         }
       }
     } catch (error) {
@@ -113,12 +113,12 @@ class BlockchainEventService {
       const pendingTxs = await provider.send('txpool_content', []);
       
       if (pendingTxs && pendingTxs.pending) {
-        for (const [fromAddress, txs] of Object.entries(pendingTxs.pending)) {
-          for (const [nonce, tx] of Object.entries(txs as Record<string, unknown>)) {
+        for (const [, txs] of Object.entries(pendingTxs.pending)) {
+          for (const [, tx] of Object.entries(txs as Record<string, unknown>)) {
             const transaction = tx as Record<string, unknown>;
             
             // Check if this transaction is coming to our address
-            if (transaction.to && transaction.to.toLowerCase() === address.toLowerCase()) {
+            if (transaction.to && typeof transaction.to === 'string' && transaction.to.toLowerCase() === address.toLowerCase()) {
               console.log('Found pending incoming transaction:', transaction.hash);
               // We'll process it when it gets mined
             }
@@ -357,7 +357,7 @@ class BlockchainEventService {
   }
 
   // Manually trigger a balance check
-  public async triggerBalanceCheck(address: string, network: string, rpcUrl: string) {
+  public async triggerBalanceCheck(address: string) {
     this.emitBalanceUpdate(address);
   }
 }

@@ -161,7 +161,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         } else {
           // Check ETH balance
           const provider = new ethers.JsonRpcProvider(currentNetworkConfig.rpcUrl);
-          const balance = await provider.getBalance(currentWallet.address);
+          await provider.getBalance(currentWallet.address);
           
           // For ETH, we don't have an expected old balance, so just refresh after first check
           console.log('ETH balance check, refreshing UI...');
@@ -434,7 +434,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       balanceMonitor.unsubscribe(handleBalanceChangeEvent);
       window.removeEventListener('triggerBalancePolling', handleBalancePollingEvent as EventListener);
     };
-  }, [handleTransactionEvent, handleBalanceUpdateEvent, handleBalanceChangeEvent, pollBalanceUntilChanged]);
+  }, [handleTransactionEvent, handleBalanceUpdateEvent, handleBalanceChangeEvent, pollBalanceUntilChanged, refreshStoredData]);
 
   // Start listening for blockchain events when wallet is loaded
   useEffect(() => {

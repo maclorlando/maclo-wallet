@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useWallet } from '@/lib/walletContext';
 import { blockchainEventService, TransactionEvent } from '@/lib/blockchainEvents';
 import { balanceMonitor, BalanceChangeEvent } from '@/lib/balanceMonitor';

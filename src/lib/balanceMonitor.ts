@@ -301,9 +301,10 @@ class BalanceMonitor {
           
           try {
             decimals = await contract.decimals();
-          } catch (decimalsError: any) {
+          } catch (decimalsError: unknown) {
             // If decimals call fails (e.g., ENS resolution), use default
-            console.debug(`Using default decimals (18) for token ${tokenAddress}:`, decimalsError?.message || 'Unknown error');
+            const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
+            console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
           }
           
           const newTokenBalance = ethers.formatUnits(balance, decimals);
