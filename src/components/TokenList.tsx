@@ -28,7 +28,7 @@ interface TokenListProps {
 
 export default function TokenList({ className = '', onSendToken }: TokenListProps) {
   const { toast } = useToast();
-  const { refreshBalances } = useWallet();
+  const { refreshBalances, removeToken } = useWallet();
   const { 
     tokenData, 
     isLoading, 
@@ -81,12 +81,20 @@ export default function TokenList({ className = '', onSendToken }: TokenListProp
   };
 
   const handleRemoveToken = (address: string) => {
-    console.log('Remove token:', address);
-    toast({
-      variant: 'success',
-      title: 'Token Removed',
-      description: 'Token has been removed from tracking',
-    });
+    try {
+      removeToken(address);
+      toast({
+        variant: 'success',
+        title: 'Token Removed',
+        description: 'Token has been removed from tracking',
+      });
+    } catch (error) {
+      toast({
+        variant: 'error',
+        title: 'Error',
+        description: 'Failed to remove token: ' + error,
+      });
+    }
   };
 
   // Show all tokens (with or without price data)

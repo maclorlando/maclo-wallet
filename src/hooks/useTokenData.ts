@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { coingeckoService } from '@/lib/coingeckoService';
-import { TokenInfo, getCurrentNetwork, getCustomTokens, getEthBalance, getCurrentNetworkConfig } from '@/lib/walletManager';
+import { TokenInfo, getCurrentNetwork, getEthBalance, getCurrentNetworkConfig } from '@/lib/walletManager';
 import { getFallbackTokenData } from '@/lib/fallbackData';
 
 // Token mapping for better CoinGecko ID matching
@@ -51,12 +51,11 @@ export function useTokenData() {
   const [tokenData, setTokenData] = useState<TokenDataMap>({});
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const { currentWallet, isRefreshingBalances } = useWallet();
+  const { currentWallet, isRefreshingBalances, customTokens } = useWallet();
 
   // Get all tokens for current network
   const getAllTokens = useCallback(() => {
     const network = getCurrentNetwork();
-    const customTokens = getCustomTokens();
     
     // Add native token for current network
     const nativeToken: TokenInfo = {
@@ -68,7 +67,7 @@ export function useTokenData() {
     };
 
     return [nativeToken, ...customTokens];
-  }, []);
+  }, [customTokens]);
 
   // Fetch token balance for ERC-20 tokens
   const getTokenBalance = useCallback(async (address: string, decimals: number): Promise<string> => {
@@ -342,6 +341,14 @@ export function useTokenData() {
       fetchAllTokenData();
     }
   }, [isRefreshingBalances, currentWallet, fetchAllTokenData]);
+
+  // React to custom tokens changes (when tokens are added/removed)
+  useEffect(() => {
+    if (currentWallet) {
+      console.log('TokenData: Custom tokens changed, refreshing data...');
+      fetchAllTokenData();
+    }
+  }, [customTokens, currentWallet, fetchAllTokenData]);
 
   // Auto-refresh data every 5 minutes
   useEffect(() => {

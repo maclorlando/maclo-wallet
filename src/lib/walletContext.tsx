@@ -10,6 +10,8 @@ import {
   getStoredWalletAddresses, 
   getCustomTokens, 
   getCustomNFTs,
+  addCustomToken,
+  removeCustomToken,
   addCustomNFT,
   removeCustomNFT,
   initializeDefaultTokens,
@@ -47,6 +49,9 @@ interface WalletContextType {
   getAccountName: (address: string) => string;
   setAccountName: (address: string, name: string) => void;
   getCurrentAccountName: () => string;
+  // Token management functionality
+  addToken: (tokenInfo: TokenInfo) => void;
+  removeToken: (address: string) => void;
   // NFT management functionality
   addNFT: (nftInfo: NFTInfo) => void;
   removeNFT: (address: string, tokenId: string) => void;
@@ -93,6 +98,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setStoredAddresses(getStoredWalletAddresses());
     setCustomTokens(getCustomTokens());
     setCustomNFTs(getCustomNFTs());
+    // Also trigger a balance refresh to update token data in useTokenData hook
+    setIsRefreshingBalances(true);
+    setTimeout(() => setIsRefreshingBalances(false), 1000);
   }, []);
 
   // Function to refresh balances (will be called by components)
@@ -346,6 +354,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [currentWallet?.mnemonic, allAccounts.length, switchAccount]);
 
+  // Token management functions
+  const addToken = useCallback((tokenInfo: TokenInfo) => {
+    addCustomToken(tokenInfo);
+    refreshStoredData();
+  }, [refreshStoredData]);
+
+  const removeToken = useCallback((address: string) => {
+    removeCustomToken(address);
+    refreshStoredData();
+  }, [refreshStoredData]);
+
   // NFT management functions
   const addNFT = useCallback((nftInfo: NFTInfo) => {
     addCustomNFT(nftInfo);
@@ -497,6 +516,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     getAccountName,
     setAccountName,
     getCurrentAccountName,
+    // Token management functionality
+    addToken,
+    removeToken,
     // NFT management functionality
     addNFT,
     removeNFT,
@@ -519,6 +541,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     getAccountName,
     setAccountName,
     getCurrentAccountName,
+    addToken,
+    removeToken,
     addNFT,
     removeNFT,
   ]);

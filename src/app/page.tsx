@@ -8,7 +8,6 @@ import {
   importWalletFromMnemonic, 
   encryptMnemonic, 
   storeEncryptedWallet, 
-  addCustomToken, 
   getEthBalance,
   TokenInfoWithImage,
   NFTInfo,
@@ -67,6 +66,7 @@ export default function Home() {
     setCurrentWallet, 
     storedAddresses, 
     customTokens, 
+    addToken,
     addNFT,
     refreshStoredData,
     isWalletUnlocked,
@@ -564,10 +564,9 @@ export default function Home() {
         name: trimmedName,
         address: trimmedAddress
       };
-      addCustomToken(trimmedTokenForm as TokenInfoWithImage);
+      addToken(trimmedTokenForm as TokenInfoWithImage);
       setShowAddToken(false);
       setTokenForm({ symbol: '', name: '', address: '', decimals: 18 });
-      refreshStoredData();
       toast({
         variant: 'success',
         title: 'Token Added',
