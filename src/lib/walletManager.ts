@@ -96,7 +96,7 @@ export const DEFAULT_TOKENS: Record<string, TokenInfo[]> = {
     {
       symbol: 'USDC',
       name: 'USD Coin',
-      address: '0x036CbD53842c5426634e7929541eC2318f3dCF7c', // Base Sepolia USDC
+      address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', // Base Sepolia USDC
       decimals: 6,
       logoURI: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png'
     },
@@ -427,23 +427,6 @@ export function removeCustomToken(address: string): void {
   }
 }
 
-// Clear duplicate USDC tokens (keep only the correct one)
-export function clearDuplicateUSDCTokens(): void {
-  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-    const tokens = getCustomTokens();
-    const correctUSDCAddress = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
-    
-    // Remove all USDC tokens except the correct one
-    const filtered = tokens.filter(token => {
-      if (token.symbol === 'USDC' && token.address.toLowerCase() !== correctUSDCAddress.toLowerCase()) {
-        return false; // Remove incorrect USDC tokens
-      }
-      return true; // Keep all other tokens
-    });
-    
-    localStorage.setItem('customTokens', JSON.stringify(filtered));
-  }
-}
 
 // NFT management
 export function addCustomNFT(nftInfo: NFTInfo): void {
@@ -486,11 +469,49 @@ export function initializeDefaultTokens(): void {
   const network = getCurrentNetwork();
   const existingTokens = getCustomTokens();
   
-  if (existingTokens.length === 0) {
-    const defaultTokens = DEFAULT_TOKENS[network] || DEFAULT_TOKENS['base-sepolia'];
-    defaultTokens.forEach(token => {
+  // Get default tokens for current network
+  const defaultTokens = DEFAULT_TOKENS[network] || DEFAULT_TOKENS['base-sepolia'];
+  
+  console.log(`Initializing default tokens for network ${network}:`, defaultTokens.map(t => t.symbol));
+  
+  // Add default tokens that don't already exist
+  defaultTokens.forEach(token => {
+    const exists = existingTokens.some(existing => 
+      existing.address.toLowerCase() === token.address.toLowerCase() ||
+      (existing.symbol === token.symbol && existing.address === '0x0000000000000000000000000000000000000000')
+    );
+    if (!exists) {
+      console.log(`Adding default token: ${token.symbol} (${token.address})`);
       addCustomToken(token);
-    });
+    } else {
+      console.log(`Default token already exists: ${token.symbol}`);
+    }
+  });
+}
+
+// Clear tokens that don't belong to the current network
+export function clearNetworkTokens(): void {
+  const network = getCurrentNetwork();
+  const existingTokens = getCustomTokens();
+  const defaultTokens = DEFAULT_TOKENS[network] || DEFAULT_TOKENS['base-sepolia'];
+  
+  // Keep only tokens that are in the default tokens for current network
+  const validTokens = existingTokens.filter(token => {
+    // Always keep native ETH token
+    if (token.address === '0x0000000000000000000000000000000000000000') {
+      return true;
+    }
+    
+    // Check if token exists in default tokens for current network
+    return defaultTokens.some(defaultToken => 
+      defaultToken.address.toLowerCase() === token.address.toLowerCase()
+    );
+  });
+  
+  // Update localStorage with valid tokens only
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    localStorage.setItem('customTokens', JSON.stringify(validTokens));
+    console.log(`Cleared tokens for network ${network}. Kept ${validTokens.length} tokens.`);
   }
 }
 
@@ -539,7 +560,7 @@ export async function getEthBalance(address: string): Promise<string> {
         params: [address, 'latest']
       })
     }, {
-      cacheKey: `eth-balance-${address}-${networkConfig.name}`,
+      cacheKey: `eth-balance-${address}-${networkConfig.name}-${networkConfig.chainId}`,
       ttl: 30000, // 30 seconds cache for balance
       retries: 1,
       timeout: 15000

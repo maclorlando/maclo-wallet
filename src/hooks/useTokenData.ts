@@ -51,7 +51,7 @@ export function useTokenData() {
   const [tokenData, setTokenData] = useState<TokenDataMap>({});
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const { currentWallet, isRefreshingBalances, customTokens } = useWallet();
+  const { currentWallet, isRefreshingBalances, customTokens, currentNetwork } = useWallet();
 
   // Get all tokens for current network
   const getAllTokens = useCallback(() => {
@@ -67,7 +67,7 @@ export function useTokenData() {
     };
 
     return [nativeToken, ...customTokens];
-  }, [customTokens]);
+  }, [customTokens, currentNetwork]);
 
   // Fetch token balance for ERC-20 tokens
   const getTokenBalance = useCallback(async (address: string, decimals: number): Promise<string> => {
@@ -91,7 +91,7 @@ export function useTokenData() {
           }, 'latest']
         })
       }, {
-        cacheKey: `token-balance-${address}-${currentWallet.address}`,
+        cacheKey: `token-balance-${address}-${currentWallet.address}-${currentNetwork}`,
         ttl: 30000, // 30 seconds cache
         retries: 1,
         timeout: 15000
@@ -109,7 +109,7 @@ export function useTokenData() {
       console.error('Error fetching token balance:', error);
       return '0.000000';
     }
-  }, [currentWallet?.address]);
+  }, [currentWallet?.address, currentNetwork]);
 
   // Fetch token data for a single token
   const fetchTokenData = useCallback(async (token: TokenInfo): Promise<TokenData> => {
@@ -227,7 +227,7 @@ export function useTokenData() {
     }
 
     return tokenData;
-  }, [getTokenBalance, currentWallet?.address]);
+  }, [getTokenBalance, currentWallet?.address, currentNetwork]);
 
   // Fetch data for all tokens
   const fetchAllTokenData = useCallback(async () => {
@@ -257,7 +257,7 @@ export function useTokenData() {
     setTokenData(newTokenData);
     setLastUpdate(new Date());
     setIsLoading(false);
-  }, [getAllTokens, fetchTokenData]);
+  }, [getAllTokens, fetchTokenData, currentNetwork]);
 
   // Refresh data for a specific token
   const refreshTokenData = useCallback(async (address: string) => {
@@ -349,6 +349,18 @@ export function useTokenData() {
       fetchAllTokenData();
     }
   }, [customTokens, currentWallet, fetchAllTokenData]);
+
+  // React to network changes
+  useEffect(() => {
+    if (currentWallet) {
+      console.log('TokenData: Network changed, clearing and refreshing data...');
+      // Clear all token data when network changes
+      setTokenData({});
+      setLastUpdate(null);
+      // Fetch fresh data for the new network
+      fetchAllTokenData();
+    }
+  }, [currentNetwork, currentWallet, fetchAllTokenData]);
 
   // Auto-refresh data every 5 minutes
   useEffect(() => {

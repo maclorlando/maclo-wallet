@@ -186,25 +186,25 @@ export default function Home() {
   const famousTokens = useMemo(() => {
     if (currentNetwork === 'base-sepolia') {
       return [
-        { symbol: 'USDC', name: 'USD Coin', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', decimals: 6, logoURI: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png' },
-        { symbol: 'USDT', name: 'Tether USD', address: '0x7c6b91D9Be155A5DbC1B0008DAD0Ceed320c82A1', decimals: 6, logoURI: 'https://cryptologos.cc/logos/tether-usdt-logo.png' },
-        { symbol: 'WETH', name: 'Wrapped Ether', address: '0x4200000000000000000000000000000000000006', decimals: 18, logoURI: 'https://cryptologos.cc/logos/weth-logo.png' },
-        { symbol: 'DAI', name: 'Dai Stablecoin', address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', decimals: 18, logoURI: 'https://cryptologos.cc/logos/multi-collateral-dai-dai-logo.png' },
-        { symbol: 'WBTC', name: 'Wrapped Bitcoin', address: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22', decimals: 8, logoURI: 'https://cryptologos.cc/logos/wrapped-bitcoin-wbtc-logo.png' },
-        { symbol: 'LINK', name: 'Chainlink', address: '0x6D0F8D488B669aa9BA2Bb4392d841615884c61e', decimals: 18, logoURI: 'https://cryptologos.cc/logos/chainlink-link-logo.png' },
-        { symbol: 'UNI', name: 'Uniswap', address: '0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb', decimals: 18, logoURI: 'https://cryptologos.cc/logos/uniswap-uni-logo.png' },
-        { symbol: 'AAVE', name: 'Aave', address: '0x2D3DCA0EF793C547F11fA4e8e98C4C3A76bc8F5', decimals: 18, logoURI: 'https://cryptologos.cc/logos/aave-aave-logo.png' }
+        { symbol: 'USDC', name: 'USD Coin', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', decimals: 6, logoURI: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png' },
+        { symbol: 'USDT', name: 'Tether USD', address: '0x7c6b91D9Be155A5DbC1B0008DAD0Ceed320c82A1', decimals: 6, logoURI: 'https://assets.coingecko.com/coins/images/325/small/Tether.png' },
+        { symbol: 'WETH', name: 'Wrapped Ether', address: '0x4200000000000000000000000000000000000006', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/2518/small/weth.png' },
+        { symbol: 'DAI', name: 'Dai Stablecoin', address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/9956/small/4943.png' },
+        { symbol: 'WBTC', name: 'Wrapped Bitcoin', address: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22', decimals: 8, logoURI: 'https://assets.coingecko.com/coins/images/7598/small/wrapped_bitcoin_wbtc.png' },
+        { symbol: 'LINK', name: 'Chainlink', address: '0x6D0F8D488B669aa9BA2Bb4392d841615884c61e', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png' },
+        { symbol: 'UNI', name: 'Uniswap', address: '0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/12504/small/uniswap-uni.png' },
+        { symbol: 'AAVE', name: 'Aave', address: '0x2D3DCA0EF793C547F11fA4e8e98C4C3A76bc8F5', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/12645/small/AAVE.png' }
       ];
     } else if (currentNetwork === 'ethereum-sepolia') {
       return [
-        { symbol: 'USDC', name: 'USD Coin (Circle)', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', decimals: 6, logoURI: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png' },
-        { symbol: 'USDT', name: 'Tether USD', address: '0x7169D38820dfd117C3FA1f22a697dba58d90BA06', decimals: 6, logoURI: 'https://cryptologos.cc/logos/tether-usdt-logo.png' },
-        { symbol: 'WETH', name: 'Wrapped Ether', address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14', decimals: 18, logoURI: 'https://cryptologos.cc/logos/weth-logo.png' },
-        { symbol: 'DAI', name: 'Dai Stablecoin', address: '0x68194a729C2450ad26072b3D33ADaCbcef39D574', decimals: 18, logoURI: 'https://cryptologos.cc/logos/multi-collateral-dai-dai-logo.png' },
-        { symbol: 'WBTC', name: 'Wrapped Bitcoin', address: '0x29f2D40B0604804367cF4ba6398e245E1b4a84', decimals: 8, logoURI: 'https://cryptologos.cc/logos/wrapped-bitcoin-wbtc-logo.png' },
-        { symbol: 'LINK', name: 'Chainlink', address: '0x779877A7B0D9E8603169DdbD7836e478b4624789', decimals: 18, logoURI: 'https://cryptologos.cc/logos/chainlink-link-logo.png' },
-        { symbol: 'UNI', name: 'Uniswap', address: '0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb', decimals: 18, logoURI: 'https://cryptologos.cc/logos/uniswap-uni-logo.png' },
-        { symbol: 'AAVE', name: 'Aave', address: '0x2D3DCA0EF793C547F11fA4e8e98C4C3A76bc8F5', decimals: 18, logoURI: 'https://cryptologos.cc/logos/aave-aave-logo.png' }
+        { symbol: 'USDC', name: 'USD Coin', address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', decimals: 6, logoURI: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png' },
+        { symbol: 'USDT', name: 'Tether USD', address: '0x7169D38820dfd117C3FA1f22a697dba58d90BA06', decimals: 6, logoURI: 'https://assets.coingecko.com/coins/images/325/small/Tether.png' },
+        { symbol: 'WETH', name: 'Wrapped Ether', address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/2518/small/weth.png' },
+        { symbol: 'DAI', name: 'Dai Stablecoin', address: '0x68194a729C2450ad26072b3D33ADaCbcef39D574', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/9956/small/4943.png' },
+        { symbol: 'WBTC', name: 'Wrapped Bitcoin', address: '0x29f2D40B0604804367cF4ba6398e245E1b4a84', decimals: 8, logoURI: 'https://assets.coingecko.com/coins/images/7598/small/wrapped_bitcoin_wbtc.png' },
+        { symbol: 'LINK', name: 'Chainlink', address: '0x779877A7B0D9E8603169DdbD7836e478b4624789', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png' },
+        { symbol: 'UNI', name: 'Uniswap', address: '0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/12504/small/uniswap-uni.png' },
+        { symbol: 'AAVE', name: 'Aave', address: '0x2D3DCA0EF793C547F11fA4e8e98C4C3A76bc8F5', decimals: 18, logoURI: 'https://assets.coingecko.com/coins/images/12645/small/AAVE.png' }
       ];
     }
     return [];
@@ -350,7 +350,7 @@ export default function Home() {
        setIsLoadingBalance(false);
        isFetchingRef.current = false;
      }
-   }, [currentWallet, customTokens, toast, getTokenBalance]);
+   }, [currentWallet, customTokens, toast, getTokenBalance, currentNetwork]);
 
   // Optimized auto-refresh with proper cleanup
   useEffect(() => {
@@ -382,7 +382,7 @@ export default function Home() {
         clearInterval(intervalId);
       }
     };
-  }, [currentWallet, isWalletUnlocked, fetchAllBalances, toast, currentNetworkConfig.name]);
+  }, [currentWallet, isWalletUnlocked, fetchAllBalances, toast, currentNetworkConfig.name, currentNetwork]);
 
   // Separate effect for balance refresh trigger
   useEffect(() => {
@@ -391,6 +391,16 @@ export default function Home() {
       fetchAllBalances(true, true);
     }
   }, [isRefreshingBalances, currentWallet, isWalletUnlocked, fetchAllBalances]);
+
+  // Effect to handle network changes
+  useEffect(() => {
+    if (currentWallet && isWalletUnlocked) {
+      // Clear ETH balance when network changes
+      setEthBalance('0.000000');
+      // Fetch fresh balances when network changes
+      fetchAllBalances(true, false);
+    }
+  }, [currentNetwork, currentWallet, isWalletUnlocked, fetchAllBalances]);
 
   const handleCreateNewWallet = () => {
     setShowWalletCreationConfirm(true);

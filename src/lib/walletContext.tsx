@@ -15,8 +15,10 @@ import {
   addCustomNFT,
   removeCustomNFT,
   initializeDefaultTokens,
+  clearNetworkTokens,
   migrateStoredTokens,
   getCurrentNetwork,
+  setCurrentNetwork,
   initializeNetwork,
   NETWORKS,
   getAllAccountsFromMnemonic
@@ -315,12 +317,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const handleNetworkChange = useCallback((network: string) => {
     if (NETWORKS[network]) {
+      console.log(`Switching to network: ${network}`);
       setCurrentNetworkState(network);
       setCurrentNetworkConfig(NETWORKS[network]);
+      // Update the network in walletManager.ts to keep it synchronized
+      setCurrentNetwork(network);
+      // Clear tokens that don't belong to the new network
+      clearNetworkTokens();
+      // Initialize default tokens for the new network
+      initializeDefaultTokens();
       // Refresh tokens for the new network
       refreshStoredData();
       // Trigger balance refresh for the new network
       refreshBalances();
+      // Force a fresh balance fetch for the new network
+      setTimeout(() => {
+        console.log(`Forcing balance refresh for network: ${network}`);
+        refreshBalances();
+      }, 100);
     }
   }, [refreshStoredData, refreshBalances]);
 
