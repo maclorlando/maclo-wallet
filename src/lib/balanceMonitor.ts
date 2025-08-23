@@ -27,7 +27,6 @@ interface TokenMetadata {
 }
 
 class BalanceMonitor {
-  private providers: Map<string, ethers.JsonRpcProvider> = new Map();
   private currentBalances: Map<string, BalanceInfo> = new Map();
   private listeners: BalanceChangeCallback[] = [];
   private isMonitoring: boolean = false;
@@ -38,17 +37,33 @@ class BalanceMonitor {
   private tokenAddresses: Set<string> = new Set();
   private tokenMetadata: Map<string, TokenMetadata> = new Map();
   private recentChangeDetected: boolean = false;
+  private isInitialLoad: boolean = true; // Track if this is the initial load
 
-  // Initialize provider for a network
-  private getProvider(network: string, rpcUrl: string): ethers.JsonRpcProvider {
-    if (!this.providers.has(network)) {
-      this.providers.set(network, new ethers.JsonRpcProvider(rpcUrl));
+  // Initialize provider for a network - we'll use fetch directly instead
+  private async makeRPCRequest(network: string, method: string, params: any[] = []): Promise<any> {
+    const response = await fetch('/api/rpc-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ network, method, params })
+    });
+
+    if (!response.ok) {
+      throw new Error(`RPC request failed: ${response.statusText}`);
     }
-    return this.providers.get(network)!;
+
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.error.message || data.error);
+    }
+
+    return data.result;
   }
 
   // Start monitoring balances for an address
   public startMonitoring(address: string, network: string, rpcUrl: string, tokenAddresses: string[] = []) {
+    // Check if we're switching networks
+    const isNetworkSwitch = this.isMonitoring && this.currentAddress === address && this.currentNetwork !== network;
+    
     if (this.isMonitoring && this.currentAddress === address && this.currentNetwork === network) {
       // Update token addresses if they've changed
       tokenAddresses.forEach(addr => this.tokenAddresses.add(addr));
@@ -62,6 +77,11 @@ class BalanceMonitor {
     this.tokenAddresses.clear();
     tokenAddresses.forEach(addr => this.tokenAddresses.add(addr));
     this.isMonitoring = true;
+    
+    // Set initial load flag when switching networks
+    if (isNetworkSwitch) {
+      this.isInitialLoad = true;
+    }
 
     // Get initial balances and start monitoring
     this.getCurrentBalances(address, network, rpcUrl).then(() => {
@@ -70,7 +90,7 @@ class BalanceMonitor {
         if (this.currentAddress && this.currentNetwork) {
           this.checkBalanceChanges();
         }
-      }, 5000); // Check every 5 seconds to reduce API calls
+      }, 15000); // Check every 15 seconds to reduce API calls
 
       // Start fast monitoring for recent changes
       this.startFastMonitoring();
@@ -95,7 +115,7 @@ class BalanceMonitor {
     this.currentBalances.clear();
     this.tokenAddresses.clear();
     this.recentChangeDetected = false;
-    console.log('Stopped monitoring balances');
+    this.isInitialLoad = true; // Reset initial load flag
   }
 
   // Start fast monitoring when changes are detected
@@ -119,10 +139,9 @@ class BalanceMonitor {
   // Get current balances
   private async getCurrentBalances(address: string, network: string, rpcUrl: string) {
     try {
-      const provider = this.getProvider(network, rpcUrl);
-      
-      // Get ETH balance
-      const ethBalance = await provider.getBalance(address);
+      // Get ETH balance using proxy
+      const ethBalanceHex = await this.makeRPCRequest(network, 'eth_getBalance', [address, 'latest']);
+      const ethBalance = BigInt(ethBalanceHex);
       const ethBalanceStr = ethers.formatEther(ethBalance);
 
       // Get token balances and metadata
@@ -141,42 +160,59 @@ class BalanceMonitor {
             return;
           }
 
-          const contract = new ethers.Contract(
-            tokenAddress,
-            [
-              'function balanceOf(address) view returns (uint256)', 
-              'function decimals() view returns (uint8)',
-              'function symbol() view returns (string)',
-              'function name() view returns (string)'
-            ],
-            provider
-          );
+          // Get balance using proxy
+          const balanceData = '0x70a08231' + '000000000000000000000000' + address.slice(2);
+          const balanceHex = await this.makeRPCRequest(network, 'eth_call', [{
+            to: tokenAddress,
+            data: balanceData
+          }, 'latest']);
           
-          // Get balance first
-          const balance = await contract.balanceOf(address);
-          
-          // Get decimals with fallback
-          let decimals = 18;
-          try {
-            decimals = await contract.decimals();
-          } catch (decimalsError: unknown) {
-            const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
-            console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
+          // Handle empty or invalid hex strings
+          let balance: bigint;
+          if (!balanceHex || balanceHex === '0x' || balanceHex === '0x0') {
+            balance = BigInt(0);
+          } else {
+            balance = BigInt(balanceHex);
           }
           
-          // Get symbol and name with fallbacks
-          let symbol = 'Unknown';
-          let name = 'Unknown Token';
+                     // Get decimals using proxy
+           let decimals = 18;
+           try {
+             const decimalsHex = await this.makeRPCRequest(network, 'eth_call', [{
+               to: tokenAddress,
+               data: '0x313ce567' // decimals()
+             }, 'latest']);
+             const parsedDecimals = parseInt(decimalsHex, 16);
+             // Validate that we got a valid number
+             if (!isNaN(parsedDecimals) && parsedDecimals >= 0 && parsedDecimals <= 255) {
+               decimals = parsedDecimals;
+             }
+           } catch (decimalsError: unknown) {
+             const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
+             console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
+           }
           
+          // Get symbol using proxy
+          let symbol = 'Unknown';
           try {
-            symbol = await contract.symbol();
+            const symbolHex = await this.makeRPCRequest(network, 'eth_call', [{
+              to: tokenAddress,
+              data: '0x95d89b41' // symbol()
+            }, 'latest']);
+            symbol = ethers.AbiCoder.defaultAbiCoder().decode(['string'], symbolHex)[0];
           } catch (symbolError: unknown) {
             const errorMessage = symbolError instanceof Error ? symbolError.message : 'Unknown error';
             console.debug(`Using default symbol for token ${tokenAddress}:`, errorMessage);
           }
           
+          // Get name using proxy
+          let name = 'Unknown Token';
           try {
-            name = await contract.name();
+            const nameHex = await this.makeRPCRequest(network, 'eth_call', [{
+              to: tokenAddress,
+              data: '0x06fdde03' // name()
+            }, 'latest']);
+            name = ethers.AbiCoder.defaultAbiCoder().decode(['string'], nameHex)[0];
           } catch (nameError: unknown) {
             const errorMessage = nameError instanceof Error ? nameError.message : 'Unknown error';
             console.debug(`Using default name for token ${tokenAddress}:`, errorMessage);
@@ -225,10 +261,8 @@ class BalanceMonitor {
         lastUpdated: Date.now()
       });
 
-      console.log(`Initial balances loaded for ${address}:`, {
-        eth: ethBalanceStr,
-        tokens: Object.fromEntries(tokenBalances)
-      });
+      // Mark initial load as complete
+      this.isInitialLoad = false;
 
     } catch (error) {
       console.error('Error getting current balances:', error);
@@ -240,31 +274,28 @@ class BalanceMonitor {
     if (!this.currentAddress || !this.currentNetwork) return;
 
     try {
-      // Get provider from the map instead of creating a new one
-      const provider = this.providers.get(this.currentNetwork);
-      if (!provider) {
-        console.warn('No provider available for balance monitoring');
-        return;
-      }
-
       const currentBalanceInfo = this.currentBalances.get(this.currentAddress);
       
       if (!currentBalanceInfo) return;
 
-      // Check ETH balance
-      const newEthBalance = await provider.getBalance(this.currentAddress);
+      // Check ETH balance using proxy
+      const newEthBalanceHex = await this.makeRPCRequest(this.currentNetwork, 'eth_getBalance', [this.currentAddress, 'latest']);
+      const newEthBalance = BigInt(newEthBalanceHex);
       const newEthBalanceStr = ethers.formatEther(newEthBalance);
 
       if (newEthBalanceStr !== currentBalanceInfo.ethBalance) {
-        const event: BalanceChangeEvent = {
-          address: this.currentAddress,
-          type: 'ETH',
-          oldBalance: currentBalanceInfo.ethBalance,
-          newBalance: newEthBalanceStr,
-          timestamp: Date.now()
-        };
+        // Only notify listeners if this is not the initial load
+        if (!this.isInitialLoad) {
+          const event: BalanceChangeEvent = {
+            address: this.currentAddress,
+            type: 'ETH',
+            oldBalance: currentBalanceInfo.ethBalance,
+            newBalance: newEthBalanceStr,
+            timestamp: Date.now()
+          };
 
-        this.notifyListeners(event);
+          this.notifyListeners(event);
+        }
         
         // Update stored balance
         currentBalanceInfo.ethBalance = newEthBalanceStr;
@@ -289,41 +320,58 @@ class BalanceMonitor {
             continue;
           }
 
-          const contract = new ethers.Contract(
-            tokenAddress,
-            ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
-            provider
-          );
+          // Get balance using proxy
+          const balanceData = '0x70a08231' + '000000000000000000000000' + this.currentAddress.slice(2);
+          const balanceHex = await this.makeRPCRequest(this.currentNetwork, 'eth_call', [{
+            to: tokenAddress,
+            data: balanceData
+          }, 'latest']);
           
-          // Get balance first, then decimals with fallback
-          const balance = await contract.balanceOf(this.currentAddress);
-          let decimals = 18; // Default fallback
-          
-          try {
-            decimals = await contract.decimals();
-          } catch (decimalsError: unknown) {
-            // If decimals call fails (e.g., ENS resolution), use default
-            const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
-            console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
+          // Handle empty or invalid hex strings
+          let balance: bigint;
+          if (!balanceHex || balanceHex === '0x' || balanceHex === '0x0') {
+            balance = BigInt(0);
+          } else {
+            balance = BigInt(balanceHex);
           }
+          
+                     // Get decimals using proxy
+           let decimals = 18;
+           try {
+             const decimalsHex = await this.makeRPCRequest(this.currentNetwork, 'eth_call', [{
+               to: tokenAddress,
+               data: '0x313ce567' // decimals()
+             }, 'latest']);
+             const parsedDecimals = parseInt(decimalsHex, 16);
+             // Validate that we got a valid number
+             if (!isNaN(parsedDecimals) && parsedDecimals >= 0 && parsedDecimals <= 255) {
+               decimals = parsedDecimals;
+             }
+           } catch (decimalsError: unknown) {
+             const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
+             console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
+           }
           
           const newTokenBalance = ethers.formatUnits(balance, decimals);
           const oldTokenBalance = currentBalanceInfo.tokenBalances.get(tokenAddress) || '0';
 
           if (newTokenBalance !== oldTokenBalance) {
-            const tokenMeta = this.tokenMetadata.get(tokenAddress);
-            const event: BalanceChangeEvent = {
-              address: this.currentAddress,
-              type: 'TOKEN',
-              tokenAddress,
-              tokenSymbol: tokenMeta?.symbol || 'Unknown',
-              tokenName: tokenMeta?.name || 'Unknown Token',
-              oldBalance: oldTokenBalance,
-              newBalance: newTokenBalance,
-              timestamp: Date.now()
-            };
+            // Only notify listeners if this is not the initial load
+            if (!this.isInitialLoad) {
+              const tokenMeta = this.tokenMetadata.get(tokenAddress);
+              const event: BalanceChangeEvent = {
+                address: this.currentAddress,
+                type: 'TOKEN',
+                tokenAddress,
+                tokenSymbol: tokenMeta?.symbol || 'Unknown',
+                tokenName: tokenMeta?.name || 'Unknown Token',
+                oldBalance: oldTokenBalance,
+                newBalance: newTokenBalance,
+                timestamp: Date.now()
+              };
 
-            this.notifyListeners(event);
+              this.notifyListeners(event);
+            }
             
             // Update stored balance
             currentBalanceInfo.tokenBalances.set(tokenAddress, newTokenBalance);

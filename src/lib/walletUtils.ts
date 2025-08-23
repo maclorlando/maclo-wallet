@@ -21,7 +21,8 @@ try {
 export interface WalletConfig {
     privateKey: string;
     chainId: number;
-    rpcUrl: string; // used for axios mode
+    rpcUrl?: string; // optional, used for axios mode
+    network?: string; // network name for proxy mode
     provider?: { send: (method: string, params: unknown[]) => Promise<string> }; // optional for in-memory Hardhat network
 }
 
@@ -141,9 +142,9 @@ export async function getNonce(config: WalletConfig, address: string): Promise<n
         const nonceHex: string = await config.provider.send("eth_getTransactionCount", [address, "pending"]);
         return parseInt(nonceHex, 16);
     } else {
-        const res = await axios.post(config.rpcUrl, {
-            jsonrpc: "2.0",
-            id: 1,
+        // Use our RPC proxy to hide API keys
+        const res = await axios.post('/api/rpc-proxy', {
+            network: config.network || 'base-sepolia',
             method: "eth_getTransactionCount",
             params: [address, "pending"]
         });
@@ -162,9 +163,9 @@ export async function estimateGas(config: WalletConfig, from: string, to: string
         }]);
         return parseInt(gasHex, 16);
     } else {
-        const res = await axios.post(config.rpcUrl, {
-            jsonrpc: "2.0",
-            id: 1,
+        // Use our RPC proxy to hide API keys
+        const res = await axios.post('/api/rpc-proxy', {
+            network: config.network || 'base-sepolia',
             method: "eth_estimateGas",
             params: [{
                 from,
@@ -181,9 +182,9 @@ export async function getGasPrice(config: WalletConfig): Promise<string> {
     if (config.provider) {
         return await config.provider.send("eth_gasPrice", []);
     } else {
-        const res = await axios.post(config.rpcUrl, {
-            jsonrpc: "2.0",
-            id: 1,
+        // Use our RPC proxy to hide API keys
+        const res = await axios.post('/api/rpc-proxy', {
+            network: config.network || 'base-sepolia',
             method: "eth_gasPrice",
             params: []
         });
@@ -193,11 +194,12 @@ export async function getGasPrice(config: WalletConfig): Promise<string> {
 
 export async function sendRawTransaction(config: WalletConfig, rawTxHex: string) {
     if (config.provider) {
-        return await config.provider.send("eth_sendRawTransaction", [rawTxHex]);
+        const result = await config.provider.send("eth_sendRawTransaction", [rawTxHex]);
+        return result;
     } else {
-        const res = await axios.post(config.rpcUrl, {
-            jsonrpc: "2.0",
-            id: 1,
+        // Use our RPC proxy to hide API keys
+        const res = await axios.post('/api/rpc-proxy', {
+            network: config.network || 'base-sepolia',
             method: "eth_sendRawTransaction",
             params: [rawTxHex]
         });
@@ -207,14 +209,14 @@ export async function sendRawTransaction(config: WalletConfig, rawTxHex: string)
 
 function toBuffer(numOrHex: number | string): Buffer {
     if (typeof numOrHex === "number") {
-        if (numOrHex === 0) return Buffer.alloc(0);
+        if (numOrHex === 0) return Buffer.alloc(32, 0); // 32-byte zero buffer for Ethereum
         let hex = numOrHex.toString(16);
         if (hex.length % 2) hex = "0" + hex; // pad to even length
         return Buffer.from(hex, "hex");
     } else {
         let hex = numOrHex.toLowerCase();
         if (hex.startsWith("0x")) hex = hex.slice(2);
-        if (hex === "" || /^0+$/.test(hex)) return Buffer.alloc(0);
+        if (hex === "" || /^0+$/.test(hex)) return Buffer.alloc(32, 0); // 32-byte zero buffer for Ethereum
         if (hex.length % 2) hex = "0" + hex; // pad to even length
         return Buffer.from(hex, "hex");
     }
@@ -224,10 +226,14 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
     const { privateKey, chainId } = config;
     const senderAddress = deriveAddress(privateKey);
 
+    console.log('buildAndSendRawTx called with:', { to, valueEth, data, chainId, senderAddress });
+
     const nonce = await getNonce(config, senderAddress);
     const gasLimit = await estimateGas(config, senderAddress, to, valueEth, data);
     const gasPrice = await getGasPrice(config);
     const valueWei = ethToWeiHex(valueEth);
+
+    console.log('Transaction parameters:', { nonce, gasLimit, gasPrice });
 
     // Ensure data has 0x prefix
     const cleanData = data.startsWith('0x') ? data : '0x' + data;
@@ -244,6 +250,8 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
         Buffer.alloc(0), // empty r
         Buffer.alloc(0)  // empty s
     ];
+
+
 
     const rlpEncoded = rlp.encode(txData);
     const msgHash = Keccak("keccak256").update(Buffer.from(rlpEncoded)).digest();
@@ -282,16 +290,14 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
     const signedRlpEncoded = rlp.encode(signedTxData);
     const rawTxHex = "0x" + Buffer.from(signedRlpEncoded).toString("hex");
 
-    return await sendRawTransaction(config, rawTxHex);
+    const result = await sendRawTransaction(config, rawTxHex);
+    return result;
 }
 
 // New function for ERC20 token transfers
 export async function sendERC20Token(config: WalletConfig, tokenAddress: string, to: string, amount: string, decimals: number = 18) {
-    console.log('sendERC20Token called with:', { tokenAddress, to, amount, decimals });
     const transferData = encodeERC20TransferData(to, amount, decimals);
-    console.log('Encoded transfer data:', transferData);
     const result = await buildAndSendRawTx(config, tokenAddress, "0", transferData);
-    console.log('Transaction result:', result);
     return result;
 }
 
@@ -314,9 +320,9 @@ export async function getERC20Balance(config: WalletConfig, tokenAddress: string
         }, "latest"]);
         return BigInt(result).toString();
     } else {
-        const res = await axios.post(config.rpcUrl, {
-            jsonrpc: "2.0",
-            id: 1,
+        // Use our RPC proxy to hide API keys
+        const res = await axios.post('/api/rpc-proxy', {
+            network: config.network || 'base-sepolia',
             method: "eth_call",
             params: [{
                 to: tokenAddress,
@@ -340,9 +346,9 @@ export async function getERC721Owner(config: WalletConfig, nftAddress: string, t
         }, "latest"]);
         return "0x" + result.slice(26); // Remove padding and add 0x
     } else {
-        const res = await axios.post(config.rpcUrl, {
-            jsonrpc: "2.0",
-            id: 1,
+        // Use our RPC proxy to hide API keys
+        const res = await axios.post('/api/rpc-proxy', {
+            network: config.network || 'base-sepolia',
             method: "eth_call",
             params: [{
                 to: nftAddress,

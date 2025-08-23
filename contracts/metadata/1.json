@@ -1,0 +1,21 @@
+{
+  "name": "Maclo Wallet NFT #1",
+  "description": "A special NFT created for testing the Maclo Wallet NFT features. This is the first NFT in the collection.",
+  "image": "https://ipfs.io/ipfs/QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG/readme.md",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Maclo Wallet Test"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    },
+    {
+      "trait_type": "Purpose",
+      "value": "Testing"
+    }
+  ],
+  "external_url": "https://maclo-wallet.com",
+  "animation_url": ""
+}

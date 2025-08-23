@@ -74,28 +74,24 @@ export function useTokenData() {
     if (!currentWallet?.address) return '0.000000';
     
     try {
-      const networkConfig = getCurrentNetworkConfig();
-      const data = await requestManager.request<{
-        error?: { message: string };
-        result?: string;
-      }>(networkConfig.rpcUrl, {
+      const response = await fetch('/api/rpc-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
+          network: currentNetwork,
           method: 'eth_call',
           params: [{
             to: address,
             data: '0x70a08231' + '000000000000000000000000' + currentWallet.address.slice(2)
           }, 'latest']
         })
-      }, {
-        cacheKey: `token-balance-${address}-${currentWallet.address}-${currentNetwork}`,
-        ttl: 30000, // 30 seconds cache
-        retries: 1,
-        timeout: 15000
       });
+      
+      if (!response.ok) {
+        throw new Error(`RPC request failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
 
       if (data.error || !data.result) return '0.000000';
       
@@ -111,6 +107,45 @@ export function useTokenData() {
     }
   }, [currentWallet?.address, currentNetwork]);
 
+  // Fetch ETH balance directly using proxy (to ensure consistency with balance monitor)
+  const getEthBalanceDirect = useCallback(async (): Promise<string> => {
+    if (!currentWallet?.address) return '0.000000';
+    
+    try {
+      const response = await fetch('/api/rpc-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          network: currentNetwork,
+          method: 'eth_getBalance',
+          params: [currentWallet.address, 'latest']
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`RPC request failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+
+      if (data.error || !data.result) return '0.000000';
+      
+      // Handle empty or invalid hex strings
+      let balanceWei: bigint;
+      if (!data.result || data.result === '0x' || data.result === '0x0') {
+        balanceWei = BigInt(0);
+      } else {
+        balanceWei = BigInt(data.result);
+      }
+      
+      const balanceEth = Number(balanceWei) / Math.pow(10, 18);
+      return balanceEth.toFixed(6);
+    } catch (error) {
+      console.error('Error fetching ETH balance:', error);
+      return '0.000000';
+    }
+  }, [currentWallet?.address, currentNetwork]);
+
   // Fetch token data for a single token
   const fetchTokenData = useCallback(async (token: TokenInfo): Promise<TokenData> => {
     const tokenData: TokenData = {
@@ -122,7 +157,7 @@ export function useTokenData() {
     try {
       // Fetch balance and price data in parallel
       const balancePromise = token.address === '0x0000000000000000000000000000000000000000' 
-        ? (currentWallet?.address ? getEthBalance(currentWallet.address) : Promise.resolve('0.000000'))
+        ? (currentWallet?.address ? getEthBalanceDirect() : Promise.resolve('0.000000'))
         : getTokenBalance(token.address, token.decimals);
 
       // For native ETH, use a different approach
@@ -170,6 +205,22 @@ export function useTokenData() {
               tokenData.balanceUSD = parseFloat(balance) * tokenData.price;
             }
           }
+          
+          // Get image URL for known tokens
+          try {
+            const imageUrl = await coingeckoService.getTokenImageByContract(token.address);
+            if (imageUrl) {
+              tokenData.imageUrl = imageUrl;
+              console.debug(`Got CoinGecko image for ${token.symbol}:`, imageUrl);
+            } else {
+              // Fallback to logoURI if CoinGecko doesn't have an image
+              tokenData.imageUrl = token.logoURI;
+              console.debug(`No CoinGecko image for ${token.symbol}, using logoURI:`, token.logoURI);
+            }
+          } catch (imageError) {
+            console.debug(`Failed to get image for ${token.symbol}, using fallback:`, imageError);
+            tokenData.imageUrl = token.logoURI;
+          }
         } else {
           // For unknown tokens, use contract API
           const [balance, contractData] = await Promise.all([
@@ -200,7 +251,7 @@ export function useTokenData() {
       // Still try to fetch balance even if price data fails
       try {
         const balance = token.address === '0x0000000000000000000000000000000000000000' 
-          ? (currentWallet?.address ? await getEthBalance(currentWallet.address) : '0.000000')
+          ? (currentWallet?.address ? await getEthBalanceDirect() : '0.000000')
           : await getTokenBalance(token.address, token.decimals);
         tokenData.balance = balance;
       } catch (balanceError) {
@@ -218,6 +269,18 @@ export function useTokenData() {
       tokenData.imageUrl = fallbackToken.image.small || token.logoURI;
       tokenData.lastUpdated = new Date().toISOString();
       tokenData.error = undefined; // Clear error since we have fallback data
+      
+      // Ensure we have an image URL
+      if (!tokenData.imageUrl) {
+        try {
+          const imageUrl = await coingeckoService.getTokenImageByContract(token.address);
+          if (imageUrl) {
+            tokenData.imageUrl = imageUrl;
+          }
+        } catch (imageError) {
+          console.debug(`Failed to get fallback image for ${token.symbol}:`, imageError);
+        }
+      }
       
       if (tokenData.price && tokenData.balance) {
         tokenData.balanceUSD = parseFloat(tokenData.balance) * tokenData.price;
@@ -337,7 +400,6 @@ export function useTokenData() {
   // React to balance refresh events from wallet context
   useEffect(() => {
     if (isRefreshingBalances && currentWallet) {
-      console.log('TokenData: Balance refresh triggered, fetching fresh data...');
       fetchAllTokenData();
     }
   }, [isRefreshingBalances, currentWallet, fetchAllTokenData]);
@@ -345,7 +407,6 @@ export function useTokenData() {
   // React to custom tokens changes (when tokens are added/removed)
   useEffect(() => {
     if (currentWallet) {
-      console.log('TokenData: Custom tokens changed, refreshing data...');
       fetchAllTokenData();
     }
   }, [customTokens, currentWallet, fetchAllTokenData]);
@@ -353,7 +414,6 @@ export function useTokenData() {
   // React to network changes
   useEffect(() => {
     if (currentWallet) {
-      console.log('TokenData: Network changed, clearing and refreshing data...');
       // Clear all token data when network changes
       setTokenData({});
       setLastUpdate(null);

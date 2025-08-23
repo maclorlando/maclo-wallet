@@ -90,7 +90,6 @@ export default function SafeImage({
         className={`rounded-full object-cover ${isLoading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
         onError={handleError}
         onLoad={handleLoad}
-        unoptimized={true}
       />
     </div>
   );

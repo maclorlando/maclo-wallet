@@ -33,13 +33,13 @@ interface SendTransactionProps {
 
 export default function SendTransaction({ isOpen, onClose, preSelectedToken, preSelectedNFT }: SendTransactionProps) {
   const { toast } = useToast();
-  const { currentWallet, currentNetworkConfig, customTokens } = useWallet();
+  const { currentWallet, currentNetworkConfig, customTokens, currentNetwork } = useWallet();
   
   const [toAddress, setToAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [transferType, setTransferType] = useState<'ETH' | 'ERC20' | 'ERC721'>('ETH');
-  const [selectedToken, setSelectedToken] = useState('');
+  const [selectedToken, setSelectedToken] = useState('0x0000000000000000000000000000000000000000');
   const [nftAddress, setNftAddress] = useState('');
   const [tokenId, setTokenId] = useState('');
   const [currentTxHash, setCurrentTxHash] = useState<string | null>(null);
@@ -48,8 +48,14 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
   useEffect(() => {
     if (isOpen) {
       if (preSelectedToken) {
-        setTransferType('ERC20');
-        setSelectedToken(preSelectedToken.address);
+        // Check if the pre-selected token is ETH (zero address)
+        if (preSelectedToken.address === '0x0000000000000000000000000000000000000000') {
+          setTransferType('ETH');
+          setSelectedToken('0x0000000000000000000000000000000000000000');
+        } else {
+          setTransferType('ERC20');
+          setSelectedToken(preSelectedToken.address);
+        }
       } else if (preSelectedNFT) {
         setTransferType('ERC721');
         setNftAddress(preSelectedNFT.address);
@@ -57,10 +63,10 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
       }
     } else {
       // Reset form when modal closes
-      setToAddress('');
-      setAmount('');
-      setSelectedToken('');
-      setNftAddress('');
+             setToAddress('');
+       setAmount('');
+       setSelectedToken('0x0000000000000000000000000000000000000000');
+       setNftAddress('');
       setTokenId('');
       setTransferType('ETH');
       
@@ -112,7 +118,7 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
         case 'ETH':
           txHash = await buildAndSendRawTx({
             privateKey: currentWallet.privateKey,
-            rpcUrl: currentNetworkConfig.rpcUrl,
+            network: currentNetwork,
             chainId: currentNetworkConfig.chainId
           }, toAddress, amount);
           break;
@@ -125,15 +131,10 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
             });
             return;
           }
-          console.log('Sending ERC20 token:', {
-            tokenAddress: selectedToken,
-            toAddress,
-            amount,
-            decimals: selectedTokenInfo.decimals
-          });
+          
           txHash = await sendERC20Token({
             privateKey: currentWallet.privateKey,
-            rpcUrl: currentNetworkConfig.rpcUrl,
+            network: currentNetwork,
             chainId: currentNetworkConfig.chainId
           }, selectedToken, toAddress, amount, selectedTokenInfo.decimals);
           break;
@@ -148,7 +149,7 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
           }
           txHash = await sendERC721NFT({
             privateKey: currentWallet.privateKey,
-            rpcUrl: currentNetworkConfig.rpcUrl,
+            network: currentNetwork,
             chainId: currentNetworkConfig.chainId
           }, nftAddress, currentWallet.address, toAddress, tokenId);
           break;
@@ -162,10 +163,10 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
         throw new Error(`Invalid transaction hash received: ${txHash}. This usually means the transaction failed to submit.`);
       }
 
-      console.log('Transaction submitted with hash:', txHash);
+             console.log('Transaction submitted with hash:', txHash);
 
       // Wait for transaction confirmation
-      const receipt = await waitForTransaction(txHash, currentNetworkConfig.rpcUrl);
+      const receipt = await waitForTransaction(txHash, '/api/rpc-proxy');
       
       if (receipt && receipt.status === '0x1') {
         toast({
@@ -177,8 +178,8 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
         // Add transaction to monitor for proper balance updates
         await transactionMonitor.addTransactionToMonitor(
           txHash,
-          currentNetworkConfig.name || 'base-sepolia',
-          currentNetworkConfig.rpcUrl
+          currentNetwork,
+          '/api/rpc-proxy'
         );
 
         // Store current transaction hash for cleanup
@@ -202,14 +203,42 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
                // Get current balance before polling
                const getCurrentTokenBalance = async () => {
                  try {
-                   const provider = new ethers.JsonRpcProvider(currentNetworkConfig.rpcUrl);
-                   const contract = new ethers.Contract(
-                     selectedToken,
-                     ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
-                     provider
-                   );
-                   const balance = await contract.balanceOf(currentWallet.address);
-                   const decimals = await contract.decimals().catch(() => selectedTokenInfo.decimals);
+                   // Use proxy for token balance check
+                   const balanceResponse = await fetch('/api/rpc-proxy', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({
+                       network: currentNetwork,
+                       method: 'eth_call',
+                       params: [{
+                         to: selectedToken,
+                         data: '0x70a08231' + '000000000000000000000000' + currentWallet.address.slice(2)
+                       }, 'latest']
+                     })
+                   });
+                   
+                   const balanceData = await balanceResponse.json();
+                   if (balanceData.error) throw new Error(balanceData.error.message);
+                   
+                   const balance = BigInt(balanceData.result);
+                   
+                   // Get decimals using proxy
+                   const decimalsResponse = await fetch('/api/rpc-proxy', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({
+                       network: currentNetwork,
+                       method: 'eth_call',
+                       params: [{
+                         to: selectedToken,
+                         data: '0x313ce567' // decimals()
+                       }, 'latest']
+                     })
+                   });
+                   
+                   const decimalsData = await decimalsResponse.json();
+                   const decimals = decimalsData.error ? selectedTokenInfo.decimals : parseInt(decimalsData.result, 16);
+                   
                    return ethers.formatUnits(balance, decimals);
                  } catch (error) {
                    console.warn('Error getting current token balance:', error);
@@ -270,14 +299,13 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
 
     while (attempts < maxAttempts) {
       try {
-        const response = await fetch(rpcUrl, {
+        const response = await fetch('/api/rpc-proxy', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
+            network: currentNetwork,
             method: 'eth_getTransactionReceipt',
             params: [txHash]
           })
@@ -303,24 +331,24 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
     throw new Error('Transaction confirmation timeout');
   };
 
-  const handleClose = () => {
-    setToAddress('');
-    setAmount('');
-    setTransferType('ETH');
-    setSelectedToken('');
-    setNftAddress('');
+     const handleClose = () => {
+     setToAddress('');
+     setAmount('');
+     setTransferType('ETH');
+     setSelectedToken('0x0000000000000000000000000000000000000000');
+     setNftAddress('');
     setTokenId('');
     onClose();
   };
 
-  const handleTokenChange = (tokenAddress: string) => {
-    setSelectedToken(tokenAddress);
-    if (tokenAddress === '0x0000000000000000000000000000000000000000') {
-      setTransferType('ETH');
-    } else {
-      setTransferType('ERC20');
-    }
-  };
+     const handleTokenChange = (tokenAddress: string) => {
+     setSelectedToken(tokenAddress);
+     if (tokenAddress === '0x0000000000000000000000000000000000000000') {
+       setTransferType('ETH');
+     } else {
+       setTransferType('ERC20');
+     }
+   };
 
   if (!isOpen) return null;
 

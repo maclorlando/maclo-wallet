@@ -109,20 +109,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const refreshBalances = useCallback(() => {
     setIsRefreshingBalances(true);
     // This will trigger a re-render in components that depend on balances
-    setTimeout(() => setIsRefreshingBalances(false), 1000);
+    setTimeout(() => {
+      setIsRefreshingBalances(false);
+    }, 1000);
   }, []);
 
   // Blockchain event handlers
   const handleTransactionEvent = useCallback((event: TransactionEvent) => {
-    console.log('Transaction event received:', event);
-    
     // Don't refresh balances here - let the balance monitor handle it
     // The balance monitor will detect actual balance changes and trigger refresh
   }, []);
 
   const handleBalanceUpdateEvent = useCallback((event: BalanceUpdateEvent) => {
-    console.log('Balance update event received:', event);
-    
     // Don't refresh balances here - let the balance monitor handle it
     // The balance monitor will detect actual balance changes and trigger refresh
   }, []);
@@ -138,46 +136,66 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     let attempts = 0;
     const pollInterval = 1000; // 1 second
     
-    const checkBalance = async (): Promise<boolean> => {
-      attempts++;
-      console.log(`Checking balance (attempt ${attempts}/${maxAttempts})...`);
-      
-      try {
-        if (tokenAddress && expectedOldBalance) {
-          // Check specific token balance
-          const provider = new ethers.JsonRpcProvider(currentNetworkConfig.rpcUrl);
-          const contract = new ethers.Contract(
-            tokenAddress,
-            ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
-            provider
-          );
-          
-          const balance = await contract.balanceOf(currentWallet.address);
-          let decimals = 18;
-          try {
-            decimals = await contract.decimals();
-          } catch {
-            // Use default decimals if call fails
-          }
-          
-          const currentBalance = ethers.formatUnits(balance, decimals);
-          console.log(`Token balance check: ${expectedOldBalance} -> ${currentBalance}`);
-          
-          if (currentBalance !== expectedOldBalance) {
-            console.log('Token balance changed! Refreshing UI...');
-            refreshBalances();
-            return true; // Balance changed
-          }
-        } else {
-          // Check ETH balance
-          const provider = new ethers.JsonRpcProvider(currentNetworkConfig.rpcUrl);
-          await provider.getBalance(currentWallet.address);
-          
-          // For ETH, we don't have an expected old balance, so just refresh after first check
-          console.log('ETH balance check, refreshing UI...');
-          refreshBalances();
-          return true;
-        }
+         const checkBalance = async (): Promise<boolean> => {
+       attempts++;
+       
+       try {
+                          if (tokenAddress && expectedOldBalance) {
+           // Check specific token balance using proxy
+           const response = await fetch('/api/rpc-proxy', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+               network: currentNetwork,
+               method: 'eth_call',
+               params: [{
+                 to: tokenAddress,
+                 data: '0x70a08231' + '000000000000000000000000' + currentWallet.address.slice(2)
+               }, 'latest']
+             })
+           });
+           
+           if (!response.ok) {
+             throw new Error(`RPC request failed: ${response.statusText}`);
+           }
+           
+           const data = await response.json();
+           if (data.error || !data.result) {
+             throw new Error('Failed to get token balance');
+           }
+           
+                      const balanceWei = BigInt(data.result);
+           const currentBalance = ethers.formatUnits(balanceWei, 18);
+           
+           if (currentBalance !== expectedOldBalance) {
+             refreshBalances();
+             return true; // Balance changed
+           }
+                 } else {
+           // Check ETH balance using proxy
+           const response = await fetch('/api/rpc-proxy', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+               network: currentNetwork,
+               method: 'eth_getBalance',
+               params: [currentWallet.address, 'latest']
+             })
+           });
+           
+           if (!response.ok) {
+             throw new Error(`RPC request failed: ${response.statusText}`);
+           }
+           
+           const data = await response.json();
+           if (data.error || !data.result) {
+             throw new Error('Failed to get ETH balance');
+           }
+           
+           // For ETH, we don't have an expected old balance, so just refresh after first check
+           refreshBalances();
+           return true;
+         }
         
         return false; // Balance hasn't changed yet
       } catch (error) {
@@ -190,16 +208,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const poll = async () => {
       const changed = await checkBalance();
       
-      if (changed) {
-        console.log('Balance polling completed successfully');
-        return;
-      }
-      
-      if (attempts >= maxAttempts) {
-        console.log('Balance polling timeout, refreshing anyway...');
-        refreshBalances();
-        return;
-      }
+             if (changed) {
+         return;
+       }
+       
+       if (attempts >= maxAttempts) {
+         refreshBalances();
+         return;
+       }
       
       // Continue polling
       setTimeout(poll, pollInterval);
@@ -207,9 +223,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     
     // Start with 1 second delay to let blockchain settle
     setTimeout(poll, pollInterval);
-  }, [currentWallet?.address, currentNetworkConfig.rpcUrl, refreshBalances]);
+  }, [currentWallet?.address, currentNetwork, refreshBalances]);
 
-  // Poll until balance is stable (for received tokens)
+  // Poll until balance is stable (for received tokens or ETH)
   const pollBalanceUntilStable = useCallback(async (
     tokenAddress: string,
     expectedBalance: string,
@@ -222,45 +238,77 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     let lastBalance = expectedBalance;
     let stableCount = 0;
     const requiredStableChecks = 3; // Balance must be stable for 3 consecutive checks
+    const isETH = tokenAddress === '0x0000000000000000000000000000000000000000';
     
-    const checkBalance = async (): Promise<boolean> => {
-      attempts++;
-      console.log(`Checking balance stability (attempt ${attempts}/${maxAttempts})...`);
-      
-      try {
-        const provider = new ethers.JsonRpcProvider(currentNetworkConfig.rpcUrl);
-        const contract = new ethers.Contract(
-          tokenAddress,
-          ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
-          provider
-        );
+         const checkBalance = async (): Promise<boolean> => {
+       attempts++;
+       
+       try {
+        let currentBalance: string;
         
-        const balance = await contract.balanceOf(currentWallet.address);
-        let decimals = 18;
-        try {
-          decimals = await contract.decimals();
-        } catch {
-          // Use default decimals if call fails
-        }
-        
-        const currentBalance = ethers.formatUnits(balance, decimals);
-        console.log(`Token balance stability check: ${lastBalance} -> ${currentBalance}`);
-        
-        if (currentBalance === lastBalance) {
-          stableCount++;
-          console.log(`Balance stable for ${stableCount}/${requiredStableChecks} checks`);
+        if (isETH) {
+          // Check ETH balance using proxy
+          const response = await fetch('/api/rpc-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              network: currentNetwork,
+              method: 'eth_getBalance',
+              params: [currentWallet.address, 'latest']
+            })
+          });
           
-          if (stableCount >= requiredStableChecks) {
-            console.log('Balance is stable! Refreshing UI...');
-            refreshBalances();
-            return true; // Balance is stable
+          if (!response.ok) {
+            throw new Error(`RPC request failed: ${response.statusText}`);
           }
+          
+          const data = await response.json();
+          if (data.error || !data.result) {
+            throw new Error('Failed to get ETH balance');
+          }
+          
+          const balanceWei = BigInt(data.result);
+          currentBalance = ethers.formatEther(balanceWei);
         } else {
-          // Balance changed, reset stability counter
-          stableCount = 0;
-          lastBalance = currentBalance;
-          console.log('Balance changed, resetting stability counter');
+          // Check token balance using proxy
+          const response = await fetch('/api/rpc-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              network: currentNetwork,
+              method: 'eth_call',
+              params: [{
+                to: tokenAddress,
+                data: '0x70a08231' + '000000000000000000000000' + currentWallet.address.slice(2)
+              }, 'latest']
+            })
+          });
+          
+          if (!response.ok) {
+            throw new Error(`RPC request failed: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          if (data.error || !data.result) {
+            throw new Error('Failed to get token balance');
+          }
+          
+          const balanceWei = BigInt(data.result);
+          currentBalance = ethers.formatUnits(balanceWei, 18);
         }
+        
+                 if (currentBalance === lastBalance) {
+           stableCount++;
+           
+           if (stableCount >= requiredStableChecks) {
+             refreshBalances();
+             return true; // Balance is stable
+           }
+         } else {
+           // Balance changed, reset stability counter
+           stableCount = 0;
+           lastBalance = currentBalance;
+         }
         
         return false; // Balance not stable yet
       } catch (error) {
@@ -273,16 +321,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const poll = async () => {
       const stable = await checkBalance();
       
-      if (stable) {
-        console.log('Balance stability polling completed successfully');
-        return;
-      }
-      
-      if (attempts >= maxAttempts) {
-        console.log('Balance stability polling timeout, refreshing anyway...');
-        refreshBalances();
-        return;
-      }
+             if (stable) {
+         return;
+       }
+       
+       if (attempts >= maxAttempts) {
+         refreshBalances();
+         return;
+       }
       
       // Continue polling
       setTimeout(poll, pollInterval);
@@ -290,11 +336,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     
     // Start with 1 second delay to let blockchain settle
     setTimeout(poll, pollInterval);
-  }, [currentWallet?.address, currentNetworkConfig.rpcUrl, refreshBalances]);
+  }, [currentWallet?.address, currentNetwork, refreshBalances]);
 
   const handleBalanceChangeEvent = useCallback((event: BalanceChangeEvent) => {
-    console.log('Balance change detected:', event);
-    
     // Show notification for received tokens
     if (event.type === 'TOKEN' && parseFloat(event.newBalance) > parseFloat(event.oldBalance)) {
       // Use a simple alert or console log instead of toast to avoid hook issues
@@ -310,14 +354,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // This ensures the blockchain state is fully settled
       pollBalanceUntilStable(event.tokenAddress, event.newBalance);
     } else if (event.type === 'ETH') {
-      // For ETH, just poll without specific checks
-      pollBalanceUntilChanged();
+      // For ETH, check if it's a decrease (sending) or increase (receiving)
+      const oldBalance = parseFloat(event.oldBalance);
+      const newBalance = parseFloat(event.newBalance);
+      
+             if (newBalance < oldBalance) {
+         // ETH was sent - poll until balance stabilizes
+         pollBalanceUntilStable('0x0000000000000000000000000000000000000000', event.newBalance);
+       } else {
+         // ETH was received - just refresh
+         pollBalanceUntilChanged();
+       }
     }
   }, [pollBalanceUntilChanged, pollBalanceUntilStable]);
 
   const handleNetworkChange = useCallback((network: string) => {
     if (NETWORKS[network]) {
-      console.log(`Switching to network: ${network}`);
       setCurrentNetworkState(network);
       setCurrentNetworkConfig(NETWORKS[network]);
       // Update the network in walletManager.ts to keep it synchronized
@@ -332,7 +384,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       refreshBalances();
       // Force a fresh balance fetch for the new network
       setTimeout(() => {
-        console.log(`Forcing balance refresh for network: ${network}`);
         refreshBalances();
       }, 100);
     }
@@ -450,7 +501,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // Listen for custom balance polling events from SendTransaction component
     const handleBalancePollingEvent = (event: CustomEvent) => {
       const { tokenAddress, expectedOldBalance } = event.detail;
-      console.log('Balance polling event received:', event.detail);
       
       if (tokenAddress && expectedOldBalance) {
         pollBalanceUntilChanged(tokenAddress, expectedOldBalance);
@@ -472,27 +522,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // Start listening for blockchain events when wallet is loaded
   useEffect(() => {
     if (currentWallet?.address && currentNetworkConfig.rpcUrl && isWalletUnlocked) {
-      blockchainEventService.startListening(
-        currentWallet.address,
-        currentNetwork,
-        currentNetworkConfig.rpcUrl
-      );
-      
-      // Also start transaction monitoring
-      transactionMonitor.startMonitoring(
-        currentWallet.address,
-        currentNetwork,
-        currentNetworkConfig.rpcUrl
-      );
+             blockchainEventService.startListening(
+         currentWallet.address,
+         currentNetwork,
+         '/api/rpc-proxy'
+       );
+       
+       // Also start transaction monitoring
+       transactionMonitor.startMonitoring(
+         currentWallet.address,
+         currentNetwork,
+         '/api/rpc-proxy'
+       );
 
-      // Start balance monitoring with current tokens
-      const tokenAddresses = customTokens.map(token => token.address);
-      balanceMonitor.startMonitoring(
-        currentWallet.address,
-        currentNetwork,
-        currentNetworkConfig.rpcUrl,
-        tokenAddresses
-      );
+       // Start balance monitoring with current tokens
+       const tokenAddresses = customTokens.map(token => token.address);
+       balanceMonitor.startMonitoring(
+         currentWallet.address,
+         currentNetwork,
+         '/api/rpc-proxy',
+         tokenAddresses
+       );
     } else {
       blockchainEventService.stopListening();
       transactionMonitor.stopMonitoring();
@@ -504,7 +554,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       transactionMonitor.stopMonitoring();
       balanceMonitor.stopMonitoring();
     };
-  }, [currentWallet?.address, currentNetwork, currentNetworkConfig.rpcUrl, isWalletUnlocked, customTokens]);
+     }, [currentWallet?.address, currentNetwork, isWalletUnlocked, customTokens]);
 
   const value = useMemo(() => ({
     currentWallet,

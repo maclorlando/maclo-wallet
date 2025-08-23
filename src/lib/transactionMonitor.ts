@@ -30,12 +30,24 @@ class TransactionMonitor {
   private currentNetwork: string | null = null;
   private monitoringInterval: NodeJS.Timeout | null = null;
 
-  // Initialize provider for a network
-  private getProvider(network: string, rpcUrl: string): ethers.JsonRpcProvider {
-    if (!this.providers.has(network)) {
-      this.providers.set(network, new ethers.JsonRpcProvider(rpcUrl));
+  // Initialize provider for a network - we'll use fetch directly instead
+  private async makeRPCRequest(network: string, method: string, params: any[] = []): Promise<any> {
+    const response = await fetch('/api/rpc-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ network, method, params })
+    });
+
+    if (!response.ok) {
+      throw new Error(`RPC request failed: ${response.statusText}`);
     }
-    return this.providers.get(network)!;
+
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.error.message || data.error);
+    }
+
+    return data.result;
   }
 
   // Start monitoring transactions for an address
@@ -79,8 +91,6 @@ class TransactionMonitor {
     rpcUrl: string
   ) {
     try {
-      const provider = this.getProvider(network, rpcUrl);
-      
       // Add to monitored transactions
       this.monitoredTransactions.set(txHash, {
         hash: txHash,
@@ -92,7 +102,7 @@ class TransactionMonitor {
       console.log(`Added transaction to monitor: ${txHash}`);
 
       // Immediately check the transaction status
-      await this.checkTransactionStatus(txHash, provider);
+      await this.checkTransactionStatusWithProxy(txHash, network);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.warn(`Failed to add transaction ${txHash} to monitor:`, errorMessage);
@@ -103,26 +113,71 @@ class TransactionMonitor {
   private async checkMonitoredTransactions() {
     if (!this.currentAddress || !this.currentNetwork) return;
 
-    const networkKey = this.currentNetwork;
-    const rpcUrl = this.rpcUrls.get(networkKey);
-    
-    if (!rpcUrl) {
-      console.warn('No RPC URL available for transaction monitoring');
-      return;
-    }
-
-    // Get or create provider
-    let provider = this.providers.get(networkKey);
-    if (!provider) {
-      provider = new ethers.JsonRpcProvider(rpcUrl);
-      this.providers.set(networkKey, provider);
-    }
-
     const promises = Array.from(this.monitoredTransactions.keys()).map(hash => 
-      this.checkTransactionStatus(hash, provider!)
+      this.checkTransactionStatusWithProxy(hash, this.currentNetwork!)
     );
 
     await Promise.all(promises);
+  }
+
+  // Check status of a specific transaction using proxy
+  private async checkTransactionStatusWithProxy(txHash: string, network: string) {
+    try {
+      const receipt = await this.makeRPCRequest(network, 'eth_getTransactionReceipt', [txHash]);
+      const currentStatus = this.monitoredTransactions.get(txHash);
+      
+      if (!currentStatus) return;
+
+      if (receipt) {
+        // Transaction has been mined
+        let confirmations = 0;
+        try {
+          // Get current block number to calculate confirmations
+          const currentBlockHex = await this.makeRPCRequest(network, 'eth_blockNumber', []);
+          const currentBlock = parseInt(currentBlockHex, 16);
+          const blockNumber = parseInt(receipt.blockNumber, 16);
+          confirmations = currentBlock - blockNumber + 1;
+        } catch {
+          confirmations = 0;
+        }
+        
+        const newStatus: TransactionStatus = {
+          hash: txHash,
+          status: receipt.status === '0x1' ? 'confirmed' : 'failed',
+          confirmations,
+          blockNumber: parseInt(receipt.blockNumber, 16),
+          timestamp: Date.now()
+        };
+
+        // Update status
+        this.monitoredTransactions.set(txHash, newStatus);
+
+        // Notify listeners
+        this.notifyListeners(txHash, newStatus);
+
+        // Remove from monitoring if confirmed or failed
+        if (newStatus.status === 'confirmed' || newStatus.status === 'failed') {
+          setTimeout(() => {
+            this.monitoredTransactions.delete(txHash);
+          }, 60000); // Keep for 1 minute after completion
+        }
+      } else {
+        // Transaction still pending, check if it's been too long
+        const timeSinceSubmission = Date.now() - currentStatus.timestamp;
+        if (timeSinceSubmission > 300000) { // 5 minutes
+          const failedStatus: TransactionStatus = {
+            ...currentStatus,
+            status: 'failed',
+            timestamp: Date.now()
+          };
+          this.monitoredTransactions.set(txHash, failedStatus);
+          this.notifyListeners(txHash, failedStatus);
+          this.monitoredTransactions.delete(txHash);
+        }
+      }
+    } catch (error) {
+      console.error(`Error checking transaction status for ${txHash}:`, error);
+    }
   }
 
   // Check status of a specific transaction

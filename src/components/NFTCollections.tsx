@@ -4,13 +4,14 @@ import React, { useState, useMemo } from 'react';
 import { useWallet } from '@/lib/walletContext';
 import { NFTInfo } from '@/lib/walletManager';
 import SafeImage from '@/components/SafeImage';
-import { Pin, Send, Trash2, Plus } from 'lucide-react';
+import { Pin, Send, Trash2, Plus, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import { Button, ConfirmationModal } from '@/components/ui';
 
 interface NFTCollectionsProps {
   onAddNFT: () => void;
   onSendNFT: (nft: NFTInfo) => void;
+  onMintNFT: () => void;
 }
 
 interface Collection {
@@ -21,7 +22,7 @@ interface Collection {
   pinnedNFTs: NFTInfo[];
 }
 
-export default function NFTCollections({ onAddNFT, onSendNFT }: NFTCollectionsProps) {
+export default function NFTCollections({ onAddNFT, onSendNFT, onMintNFT }: NFTCollectionsProps) {
   const { customNFTs, removeNFT } = useWallet();
   const { toast } = useToast();
   const [pinnedNFTs, setPinnedNFTs] = useState<Set<string>>(new Set());
@@ -111,10 +112,16 @@ export default function NFTCollections({ onAddNFT, onSendNFT }: NFTCollectionsPr
           <p className="jupiter-empty-description">
             You haven&apos;t added any NFTs to your wallet yet.
           </p>
-          <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-primary">
-            <Plus className="h-4 w-4 mr-2" />
-            Add NFT
-          </Button>
+          <div className="flex space-x-2">
+            <Button onClick={onMintNFT} className="jupiter-btn jupiter-btn-primary">
+              <Sparkles className="h-4 w-4 mr-2" />
+              Mint Test NFT
+            </Button>
+            <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-secondary">
+              <Plus className="h-4 w-4 mr-2" />
+              Add NFT
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -125,10 +132,16 @@ export default function NFTCollections({ onAddNFT, onSendNFT }: NFTCollectionsPr
       <div className="jupiter-section-header">
         <h3 className="jupiter-section-title">NFT Collections</h3>
         <p className="jupiter-section-subtitle">Your NFT holdings</p>
-        <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-secondary">
-          <Plus className="h-4 w-4 mr-2" />
-          Add NFT
-        </Button>
+        <div className="flex space-x-2">
+          <Button onClick={onMintNFT} className="jupiter-btn jupiter-btn-primary">
+            <Sparkles className="h-4 w-4 mr-2" />
+            Mint Test NFT
+          </Button>
+          <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-secondary">
+            <Plus className="h-4 w-4 mr-2" />
+            Add NFT
+          </Button>
+        </div>
       </div>
 
       <div className="jupiter-nft-collections">

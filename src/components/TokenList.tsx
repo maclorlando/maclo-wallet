@@ -276,7 +276,7 @@ export default function TokenList({ className = '', onSendToken }: TokenListProp
                         <div className="flex items-center space-x-2 flex-1 min-w-0">
                           <div className="relative">
                             <SafeImage
-                              src={token.imageUrl}
+                              src={token.imageUrl || token.logoURI}
                               alt={token.symbol}
                               width={32}
                               height={32}
@@ -349,7 +349,7 @@ export default function TokenList({ className = '', onSendToken }: TokenListProp
                       <div className="flex items-center space-x-2 flex-1 min-w-0">
                         <div className="relative">
                           <SafeImage
-                            src={token.imageUrl}
+                            src={token.imageUrl || token.logoURI}
                             alt={token.symbol}
                             width={32}
                             height={32}

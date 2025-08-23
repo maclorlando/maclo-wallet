@@ -58,7 +58,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
   'base-sepolia': {
     chainId: 84532,
     name: 'Base Sepolia',
-    rpcUrl: process.env.NEXT_PUBLIC_BASE_RPC_URL || 'https://sepolia.base.org',
+    rpcUrl: '/api/rpc-proxy', // Use proxy to hide API keys
     blockExplorer: 'https://sepolia.basescan.org',
     nativeCurrency: {
       name: 'ETH',
@@ -71,7 +71,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
   'ethereum-sepolia': {
     chainId: 11155111,
     name: 'Ethereum Sepolia',
-    rpcUrl: process.env.NEXT_PUBLIC_ETH_RPC_URL || 'https://rpc.sepolia.org',
+    rpcUrl: '/api/rpc-proxy', // Use proxy to hide API keys
     blockExplorer: 'https://sepolia.etherscan.io',
     nativeCurrency: {
       name: 'ETH',
@@ -544,27 +544,25 @@ export function migrateStoredTokens(): void {
 export async function getEthBalance(address: string): Promise<string> {
   try {
     const networkConfig = getCurrentNetworkConfig();
+    const currentNetwork = getCurrentNetwork();
     
-    const data = await requestManager.request<{
-      error?: { message: string };
-      result?: string;
-    }>(networkConfig.rpcUrl, {
+    const response = await fetch('/api/rpc-proxy', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
+        network: currentNetwork,
         method: 'eth_getBalance',
         params: [address, 'latest']
       })
-    }, {
-      cacheKey: `eth-balance-${address}-${networkConfig.name}-${networkConfig.chainId}`,
-      ttl: 30000, // 30 seconds cache for balance
-      retries: 1,
-      timeout: 15000
     });
+    
+    if (!response.ok) {
+      throw new Error(`RPC request failed: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
     
     if (data.error) {
       throw new Error(data.error.message);

@@ -23,6 +23,7 @@ import {
   RecoverWalletModal,
   AddTokenModal,
   AddNFTModal,
+  MintNFTModal,
   ViewMnemonicModal
 } from '@/components/modals';
 import AccountManager from '@/components/AccountManager';
@@ -82,6 +83,7 @@ export default function Home() {
   const [showRecoverWallet, setShowRecoverWallet] = useState(false);
   const [showAddToken, setShowAddToken] = useState(false);
   const [showAddNFT, setShowAddNFT] = useState(false);
+  const [showMintNFT, setShowMintNFT] = useState(false);
   const [showSendTransaction, setShowSendTransaction] = useState(false);
   const [preSelectedToken, setPreSelectedToken] = useState<{
     symbol: string;
@@ -145,27 +147,24 @@ export default function Home() {
   // Get token balance with rate limiting and graceful failure
   const getTokenBalance = useCallback(async (address: string, decimals: number): Promise<string> => {
     try {
-      const data = await requestManager.request<{
-        error?: { message: string };
-        result?: string;
-      }>(currentNetworkConfig.rpcUrl, {
+      const response = await fetch('/api/rpc-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
+          network: currentNetwork,
           method: 'eth_call',
           params: [{
             to: address,
             data: '0x70a08231' + '000000000000000000000000' + currentWallet?.address?.slice(2) || ''
           }, 'latest']
         })
-      }, {
-        cacheKey: `token-balance-${address}-${currentWallet?.address}-${currentNetwork}`,
-        ttl: 30000, // 30 seconds cache
-        retries: 1,
-        timeout: 15000
       });
+
+      if (!response.ok) {
+        throw new Error(`RPC request failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
 
       if (data.error || !data.result) return '0.000000';
       
@@ -180,7 +179,7 @@ export default function Home() {
       console.error('Error fetching token balance:', error);
       return '0.000000';
     }
-  }, [currentNetworkConfig.rpcUrl, currentWallet?.address, currentNetwork]);
+  }, [currentWallet?.address, currentNetwork]);
 
     // Memoize expensive computations
   const famousTokens = useMemo(() => {
@@ -217,16 +216,31 @@ export default function Home() {
   // Debounced fetch function to prevent rapid successive calls
   const isFetchingRef = useRef(false);
   const lastFetchTimeRef = useRef(0);
+  const networkRef = useRef(currentNetwork);
+  const walletAddressRef = useRef(currentWallet?.address);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-    // Fetch all balances with optimizations
+  // Update refs when values change
+  useEffect(() => {
+    networkRef.current = currentNetwork;
+    walletAddressRef.current = currentWallet ? currentWallet.address : '';
+  }, [currentNetwork, currentWallet]);
+  
+  // Fetch all balances with optimizations
   const fetchAllBalances = useCallback(async (force = false, showToast = true) => {
-    if (!currentWallet?.address || isFetchingRef.current) return;
+    if (!walletAddressRef.current || isFetchingRef.current) return;
 
-               // Prevent excessive calls - only allow once every 60 seconds unless forced
-      const now = Date.now();
-      if (!force && now - lastFetchTimeRef.current < 60000) {
-        return;
-      }
+    // Clear any existing debounce timeout
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = null;
+    }
+
+    // Prevent excessive calls - only allow once every 60 seconds unless forced
+    const now = Date.now();
+    if (!force && now - lastFetchTimeRef.current < 60000) {
+      return;
+    }
 
     isFetchingRef.current = true;
     setIsLoadingBalance(true);
@@ -235,11 +249,11 @@ export default function Home() {
     try {
       // Parallel API calls for better performance
       const [ethBalance, prices] = await Promise.all([
-        getEthBalance(currentWallet.address),
+        getEthBalance(walletAddressRef.current),
         getTokenPrices()
       ]);
 
-             setEthBalance(ethBalance);
+      setEthBalance(ethBalance);
 
       // Only fetch token balances if there are custom tokens
       if (customTokens.length > 0) {
@@ -350,7 +364,18 @@ export default function Home() {
        setIsLoadingBalance(false);
        isFetchingRef.current = false;
      }
-   }, [currentWallet, customTokens, toast, getTokenBalance, currentNetwork]);
+   }, [customTokens, toast, getTokenBalance]);
+
+  // Debounced version of fetchAllBalances
+  const debouncedFetchAllBalances = useCallback((force = false, showToast = true) => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+    
+    debounceTimeoutRef.current = setTimeout(() => {
+      fetchAllBalances(force, showToast);
+    }, 1000); // 1 second debounce
+  }, [fetchAllBalances]);
 
   // Optimized auto-refresh with proper cleanup
   useEffect(() => {
@@ -358,7 +383,7 @@ export default function Home() {
     
     if (currentWallet && isWalletUnlocked) {
       // Initial fetch with welcome toast
-      fetchAllBalances(true, false);
+      debouncedFetchAllBalances(true, false);
       
       // Show welcome toast for first load only if we haven't shown one yet
       if (!hasShownWelcomeToast.current) {
@@ -372,7 +397,7 @@ export default function Home() {
       
       // Set up interval with longer delay to reduce load
       intervalId = setInterval(() => {
-        fetchAllBalances(false, false);
+        debouncedFetchAllBalances(false, false);
       }, 300000); // Changed to 5 minutes to reduce API calls
     }
 
@@ -381,16 +406,19 @@ export default function Home() {
       if (intervalId) {
         clearInterval(intervalId);
       }
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
     };
-  }, [currentWallet, isWalletUnlocked, fetchAllBalances, toast, currentNetworkConfig.name, currentNetwork]);
+  }, [currentWallet, isWalletUnlocked, debouncedFetchAllBalances, toast, currentNetworkConfig.name]);
 
   // Separate effect for balance refresh trigger
   useEffect(() => {
     if (isRefreshingBalances && currentWallet && isWalletUnlocked) {
       // Show toast for balance refresh
-      fetchAllBalances(true, true);
+      debouncedFetchAllBalances(true, true);
     }
-  }, [isRefreshingBalances, currentWallet, isWalletUnlocked, fetchAllBalances]);
+  }, [isRefreshingBalances, currentWallet, isWalletUnlocked, debouncedFetchAllBalances]);
 
   // Effect to handle network changes
   useEffect(() => {
@@ -398,9 +426,9 @@ export default function Home() {
       // Clear ETH balance when network changes
       setEthBalance('0.000000');
       // Fetch fresh balances when network changes
-      fetchAllBalances(true, false);
+      debouncedFetchAllBalances(true, false);
     }
-  }, [currentNetwork, currentWallet, isWalletUnlocked, fetchAllBalances]);
+  }, [currentNetwork, currentWallet, isWalletUnlocked, debouncedFetchAllBalances]);
 
   const handleCreateNewWallet = () => {
     setShowWalletCreationConfirm(true);
@@ -666,6 +694,15 @@ export default function Home() {
   useEffect(() => {
     refreshStoredData();
   }, [refreshStoredData]); // Include refreshStoredData in dependencies
+
+  // Cleanup effect to clear all timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, []);
 
      if (!isWalletUnlocked) {
      return (
@@ -1008,6 +1045,7 @@ export default function Home() {
           <NFTCollections 
             onAddNFT={() => setShowAddNFT(true)}
             onSendNFT={handleSendNFT}
+            onMintNFT={() => setShowMintNFT(true)}
           />
         </div>
       </div>
@@ -1040,6 +1078,11 @@ export default function Home() {
          }}
          onAdd={handleAddNFT}
          loading={false}
+       />
+
+       <MintNFTModal
+         isOpen={showMintNFT}
+         onClose={() => setShowMintNFT(false)}
        />
 
              {/* Send Transaction Component */}

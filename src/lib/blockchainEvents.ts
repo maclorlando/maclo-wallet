@@ -28,12 +28,24 @@ class BlockchainEventService {
   private currentAddress: string | null = null;
   private currentNetwork: string | null = null;
 
-  // Initialize provider for a network
-  private getProvider(network: string, rpcUrl: string): ethers.JsonRpcProvider {
-    if (!this.providers.has(network)) {
-      this.providers.set(network, new ethers.JsonRpcProvider(rpcUrl));
+  // Initialize provider for a network - we'll use fetch directly instead
+  private async makeRPCRequest(network: string, method: string, params: any[] = []): Promise<any> {
+    const response = await fetch('/api/rpc-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ network, method, params })
+    });
+
+    if (!response.ok) {
+      throw new Error(`RPC request failed: ${response.statusText}`);
     }
-    return this.providers.get(network)!;
+
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.error.message || data.error);
+    }
+
+    return data.result;
   }
 
   // Start listening for events
@@ -48,25 +60,15 @@ class BlockchainEventService {
     this.currentNetwork = network;
     this.isListening = true;
 
-    const provider = this.getProvider(network, rpcUrl);
-
-    // Listen for new blocks
-    provider.on('block', async (blockNumber) => {
-      try {
-        await this.checkForTransactions(provider, address, blockNumber);
-      } catch (error) {
-        console.error('Error checking for transactions:', error);
-      }
-    });
-
-    // Also check for pending transactions periodically
+    // Use polling instead of WebSocket events to work with our proxy
+    // Check for new blocks every 30 seconds
     setInterval(async () => {
       try {
-        await this.checkPendingTransactions(provider, address);
+        await this.checkForNewBlocks(address);
       } catch (error) {
-        console.error('Error checking pending transactions:', error);
+        console.error('Error checking for new blocks:', error);
       }
-    }, 10000); // Check every 10 seconds
+    }, 30000); // Check every 30 seconds
 
     console.log(`Started listening for events on address: ${address} on network: ${network}`);
   }
@@ -83,6 +85,30 @@ class BlockchainEventService {
     this.currentAddress = null;
     this.currentNetwork = null;
     console.log('Stopped listening for blockchain events');
+  }
+
+  // Check for new blocks and transactions
+  private async checkForNewBlocks(address: string) {
+    try {
+      // Get the latest block number
+      const latestBlockHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_blockNumber', []);
+      const latestBlockNumber = parseInt(latestBlockHex, 16);
+      
+      // Get the block details
+      const block = await this.makeRPCRequest(this.currentNetwork!, 'eth_getBlockByNumber', [latestBlockHex, true]);
+      if (!block || !block.transactions) return;
+
+      for (const tx of block.transactions) {
+        // Check if this transaction involves our address
+        if (tx.from?.toLowerCase() === address.toLowerCase() || 
+            tx.to?.toLowerCase() === address.toLowerCase()) {
+          
+          await this.processTransactionFromBlock(tx, address);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking for new blocks:', error);
+    }
   }
 
   // Check for transactions in the latest block
@@ -128,6 +154,33 @@ class BlockchainEventService {
     } catch (error) {
       // Some RPC providers don't support txpool_content, so we'll ignore this error
       console.debug('Could not check pending transactions:', error);
+    }
+  }
+
+  // Process a transaction from block data
+  private async processTransactionFromBlock(tx: any, address: string) {
+    try {
+      const isIncoming = tx.to?.toLowerCase() === address.toLowerCase();
+      const isOutgoing = tx.from?.toLowerCase() === address.toLowerCase();
+
+      if (!isIncoming && !isOutgoing) return;
+
+      // Get transaction receipt using proxy
+      const receipt = await this.makeRPCRequest(this.currentNetwork!, 'eth_getTransactionReceipt', [tx.hash]);
+      if (!receipt || receipt.status !== '0x1') return; // Transaction failed
+
+      // Check if it's a token transfer (has input data)
+      if (tx.input && tx.input !== '0x') {
+        await this.processTokenTransferFromBlock(tx, receipt, address, isIncoming);
+      } else {
+        // Native token transfer (ETH, etc.)
+        await this.processNativeTransferFromBlock(tx, address, isIncoming);
+      }
+
+      // Emit balance update event
+      this.emitBalanceUpdate(address);
+    } catch (error) {
+      console.error('Error processing transaction from block:', error);
     }
   }
 
@@ -277,6 +330,141 @@ class BlockchainEventService {
       this.emitTransactionEvent(event);
     } catch (error) {
       console.error('Error processing ERC721 transfer:', error);
+    }
+  }
+
+  // Process native token transfers from block data
+  private async processNativeTransferFromBlock(
+    tx: any, 
+    address: string, 
+    isIncoming: boolean
+  ) {
+    const amount = ethers.formatEther(tx.value);
+    const networkSymbol = this.currentNetwork === 'base-sepolia' ? 'ETH' : 'ETH';
+
+    const event: TransactionEvent = {
+      type: isIncoming ? 'received' : 'sent',
+      tokenSymbol: networkSymbol,
+      amount: amount,
+      from: tx.from!,
+      to: tx.to!,
+      txHash: tx.hash,
+      timestamp: Date.now()
+    };
+
+    this.emitTransactionEvent(event);
+  }
+
+  // Process token transfers from block data
+  private async processTokenTransferFromBlock(
+    tx: any, 
+    receipt: any, 
+    address: string, 
+    isIncoming: boolean
+  ) {
+    try {
+      // Parse transaction data to determine token type and amount
+      const data = tx.input;
+      
+      // ERC20 transfer: 0xa9059cbb (transfer function)
+      if (data.startsWith('0xa9059cbb')) {
+        await this.processERC20TransferFromBlock(tx, address, isIncoming);
+      }
+      // ERC721 transfer: 0x23b872dd (transferFrom function)
+      else if (data.startsWith('0x23b872dd')) {
+        await this.processERC721TransferFromBlock(tx, address, isIncoming);
+      }
+    } catch (error) {
+      console.error('Error processing token transfer from block:', error);
+    }
+  }
+
+  // Process ERC20 token transfers from block data
+  private async processERC20TransferFromBlock(
+    tx: any, 
+    address: string, 
+    isIncoming: boolean
+  ) {
+    try {
+      const tokenAddress = tx.to!;
+      
+      // Parse transfer data
+      const data = tx.input;
+      const toAddress = '0x' + data.slice(34, 74); // Extract 'to' address
+      const amountHex = data.slice(74); // Extract amount
+      const amount = ethers.formatUnits('0x' + amountHex, 18); // Assume 18 decimals for now
+
+      // Get token symbol using proxy
+      let symbol = 'Unknown';
+      try {
+        const symbolHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_call', [{
+          to: tokenAddress,
+          data: '0x95d89b41' // symbol()
+        }, 'latest']);
+        symbol = ethers.AbiCoder.defaultAbiCoder().decode(['string'], symbolHex)[0];
+      } catch (error) {
+        console.warn('Could not get token symbol:', error);
+      }
+
+      // Emit transaction event
+      const event: TransactionEvent = {
+        type: isIncoming ? 'received' : 'sent',
+        tokenSymbol: symbol,
+        amount: amount,
+        from: tx.from!,
+        to: toAddress,
+        txHash: tx.hash,
+        timestamp: Date.now()
+      };
+
+      this.emitTransactionEvent(event);
+    } catch (error) {
+      console.error('Error processing ERC20 transfer from block:', error);
+    }
+  }
+
+  // Process ERC721 token transfers from block data
+  private async processERC721TransferFromBlock(
+    tx: any, 
+    address: string, 
+    isIncoming: boolean
+  ) {
+    try {
+      const tokenAddress = tx.to!;
+      
+      // Parse transfer data
+      const data = tx.input;
+      const fromAddress = '0x' + data.slice(34, 74); // Extract 'from' address
+      const toAddress = '0x' + data.slice(98, 138); // Extract 'to' address
+      const tokenIdHex = data.slice(138); // Extract tokenId
+      const tokenId = ethers.formatUnits('0x' + tokenIdHex, 0);
+
+      // Get token symbol using proxy
+      let symbol = 'Unknown NFT';
+      try {
+        const symbolHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_call', [{
+          to: tokenAddress,
+          data: '0x95d89b41' // symbol()
+        }, 'latest']);
+        symbol = ethers.AbiCoder.defaultAbiCoder().decode(['string'], symbolHex)[0];
+      } catch (error) {
+        console.warn('Could not get NFT symbol:', error);
+      }
+
+      // Emit transaction event
+      const event: TransactionEvent = {
+        type: isIncoming ? 'received' : 'sent',
+        tokenSymbol: `${symbol} #${tokenId}`,
+        amount: tokenId,
+        from: fromAddress,
+        to: toAddress,
+        txHash: tx.hash,
+        timestamp: Date.now()
+      };
+
+      this.emitTransactionEvent(event);
+    } catch (error) {
+      console.error('Error processing ERC721 transfer from block:', error);
     }
   }
 

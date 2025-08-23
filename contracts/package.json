@@ -1,0 +1,31 @@
+{
+  "name": "maclo-wallet-contracts",
+  "version": "1.0.0",
+  "description": "Smart contracts for Maclo Wallet NFT testing",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:eth": "hardhat run deploy.js --network ethereumSepolia",
+    "deploy:base": "hardhat run deploy.js --network baseSepolia",
+    "deploy:all": "hardhat run deploy.js --network ethereumSepolia && hardhat run deploy.js --network baseSepolia",
+    "verify:eth": "hardhat verify --network ethereumSepolia",
+    "verify:base": "hardhat verify --network baseSepolia",
+    "test": "hardhat test"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "dotenv": "^16.3.1",
+    "hardhat": "^2.19.0"
+  },
+  "keywords": [
+    "ethereum",
+    "nft",
+    "smart-contracts",
+    "hardhat"
+  ],
+  "author": "Maclo Wallet Team",
+  "license": "MIT"
+}
