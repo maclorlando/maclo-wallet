@@ -40,7 +40,7 @@ class BalanceMonitor {
   private isInitialLoad: boolean = true; // Track if this is the initial load
 
   // Initialize provider for a network - we'll use fetch directly instead
-  private async makeRPCRequest(network: string, method: string, params: any[] = []): Promise<any> {
+  private async makeRPCRequest(network: string, method: string, params: unknown[] = []): Promise<string> {
     const response = await fetch('/api/rpc-proxy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -60,7 +60,7 @@ class BalanceMonitor {
   }
 
   // Start monitoring balances for an address
-  public startMonitoring(address: string, network: string, rpcUrl: string, tokenAddresses: string[] = []) {
+  public startMonitoring(address: string, network: string, _rpcUrl: string, tokenAddresses: string[] = []) {
     // Check if we're switching networks
     const isNetworkSwitch = this.isMonitoring && this.currentAddress === address && this.currentNetwork !== network;
     
@@ -84,7 +84,7 @@ class BalanceMonitor {
     }
 
     // Get initial balances and start monitoring
-    this.getCurrentBalances(address, network, rpcUrl).then(() => {
+    this.getCurrentBalances(address, network, _rpcUrl).then(() => {
       // Start monitoring interval after initial balances are loaded
       this.monitoringInterval = setInterval(() => {
         if (this.currentAddress && this.currentNetwork) {
@@ -137,7 +137,7 @@ class BalanceMonitor {
   }
 
   // Get current balances
-  private async getCurrentBalances(address: string, network: string, rpcUrl: string) {
+  private async getCurrentBalances(address: string, network: string, _rpcUrl: string) {
     try {
       // Get ETH balance using proxy
       const ethBalanceHex = await this.makeRPCRequest(network, 'eth_getBalance', [address, 'latest']);
@@ -441,8 +441,8 @@ class BalanceMonitor {
   }
 
   // Force refresh balances
-  public async forceRefresh(address: string, network: string, rpcUrl: string) {
-    await this.getCurrentBalances(address, network, rpcUrl);
+  public async forceRefresh(address: string, network: string, _rpcUrl: string) {
+    await this.getCurrentBalances(address, network, _rpcUrl);
   }
 
   // Check if currently monitoring

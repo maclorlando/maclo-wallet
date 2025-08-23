@@ -166,7 +166,7 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
              console.log('Transaction submitted with hash:', txHash);
 
       // Wait for transaction confirmation
-      const receipt = await waitForTransaction(txHash, '/api/rpc-proxy');
+      const receipt = await waitForTransaction(txHash);
       
       if (receipt && receipt.status === '0x1') {
         toast({
@@ -293,7 +293,7 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
   };
 
   // Function to wait for transaction confirmation
-  const waitForTransaction = async (txHash: string, rpcUrl: string): Promise<{ status: string; blockHash: string }> => {
+  const waitForTransaction = async (txHash: string): Promise<{ status: string; blockHash: string }> => {
     const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max wait
     let attempts = 0;
 

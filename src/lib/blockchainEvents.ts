@@ -29,7 +29,7 @@ class BlockchainEventService {
   private currentNetwork: string | null = null;
 
   // Initialize provider for a network - we'll use fetch directly instead
-  private async makeRPCRequest(network: string, method: string, params: any[] = []): Promise<any> {
+  private async makeRPCRequest(network: string, method: string, params: unknown[] = []): Promise<unknown> {
     const response = await fetch('/api/rpc-proxy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -49,7 +49,7 @@ class BlockchainEventService {
   }
 
   // Start listening for events
-  public startListening(address: string, network: string, rpcUrl: string) {
+  public startListening(address: string, network: string, _rpcUrl: string) {
     if (this.isListening && this.currentAddress === address && this.currentNetwork === network) {
       return; // Already listening to the same address and network
     }
@@ -91,19 +91,20 @@ class BlockchainEventService {
   private async checkForNewBlocks(address: string) {
     try {
       // Get the latest block number
-      const latestBlockHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_blockNumber', []);
-      const latestBlockNumber = parseInt(latestBlockHex, 16);
+      const latestBlockHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_blockNumber', []) as string;
+      const _latestBlockNumber = parseInt(latestBlockHex, 16);
       
       // Get the block details
-      const block = await this.makeRPCRequest(this.currentNetwork!, 'eth_getBlockByNumber', [latestBlockHex, true]);
+      const block = await this.makeRPCRequest(this.currentNetwork!, 'eth_getBlockByNumber', [latestBlockHex, true]) as { transactions?: unknown[] };
       if (!block || !block.transactions) return;
 
       for (const tx of block.transactions) {
         // Check if this transaction involves our address
-        if (tx.from?.toLowerCase() === address.toLowerCase() || 
-            tx.to?.toLowerCase() === address.toLowerCase()) {
+        const transaction = tx as { from?: string; to?: string };
+        if (transaction.from?.toLowerCase() === address.toLowerCase() || 
+            transaction.to?.toLowerCase() === address.toLowerCase()) {
           
-          await this.processTransactionFromBlock(tx, address);
+          await this.processTransactionFromBlock(tx as { hash: string; to?: string; from?: string; input?: string }, address);
         }
       }
     } catch (error) {
@@ -158,7 +159,7 @@ class BlockchainEventService {
   }
 
   // Process a transaction from block data
-  private async processTransactionFromBlock(tx: any, address: string) {
+  private async processTransactionFromBlock(tx: { hash: string; to?: string; from?: string; input?: string }, address: string) {
     try {
       const isIncoming = tx.to?.toLowerCase() === address.toLowerCase();
       const isOutgoing = tx.from?.toLowerCase() === address.toLowerCase();
@@ -166,7 +167,7 @@ class BlockchainEventService {
       if (!isIncoming && !isOutgoing) return;
 
       // Get transaction receipt using proxy
-      const receipt = await this.makeRPCRequest(this.currentNetwork!, 'eth_getTransactionReceipt', [tx.hash]);
+      const receipt = await this.makeRPCRequest(this.currentNetwork!, 'eth_getTransactionReceipt', [tx.hash]) as { status: string };
       if (!receipt || receipt.status !== '0x1') return; // Transaction failed
 
       // Check if it's a token transfer (has input data)
@@ -335,19 +336,19 @@ class BlockchainEventService {
 
   // Process native token transfers from block data
   private async processNativeTransferFromBlock(
-    tx: any, 
+    tx: { value?: string; from?: string; to?: string; hash: string }, 
     address: string, 
     isIncoming: boolean
   ) {
-    const amount = ethers.formatEther(tx.value);
+    const amount = ethers.formatEther(tx.value || '0x0');
     const networkSymbol = this.currentNetwork === 'base-sepolia' ? 'ETH' : 'ETH';
 
     const event: TransactionEvent = {
       type: isIncoming ? 'received' : 'sent',
       tokenSymbol: networkSymbol,
       amount: amount,
-      from: tx.from!,
-      to: tx.to!,
+      from: tx.from || '',
+      to: tx.to || '',
       txHash: tx.hash,
       timestamp: Date.now()
     };
@@ -357,14 +358,14 @@ class BlockchainEventService {
 
   // Process token transfers from block data
   private async processTokenTransferFromBlock(
-    tx: any, 
-    receipt: any, 
+    tx: { input?: string; to?: string; from?: string; hash: string }, 
+    receipt: { status: string }, 
     address: string, 
     isIncoming: boolean
   ) {
     try {
       // Parse transaction data to determine token type and amount
-      const data = tx.input;
+      const data = tx.input || '0x';
       
       // ERC20 transfer: 0xa9059cbb (transfer function)
       if (data.startsWith('0xa9059cbb')) {
@@ -381,15 +382,15 @@ class BlockchainEventService {
 
   // Process ERC20 token transfers from block data
   private async processERC20TransferFromBlock(
-    tx: any, 
+    tx: { input?: string; to?: string; from?: string; hash: string }, 
     address: string, 
     isIncoming: boolean
   ) {
     try {
-      const tokenAddress = tx.to!;
+      const tokenAddress = tx.to || '';
       
       // Parse transfer data
-      const data = tx.input;
+      const data = tx.input || '0x';
       const toAddress = '0x' + data.slice(34, 74); // Extract 'to' address
       const amountHex = data.slice(74); // Extract amount
       const amount = ethers.formatUnits('0x' + amountHex, 18); // Assume 18 decimals for now
@@ -400,7 +401,7 @@ class BlockchainEventService {
         const symbolHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_call', [{
           to: tokenAddress,
           data: '0x95d89b41' // symbol()
-        }, 'latest']);
+        }, 'latest']) as string;
         symbol = ethers.AbiCoder.defaultAbiCoder().decode(['string'], symbolHex)[0];
       } catch (error) {
         console.warn('Could not get token symbol:', error);
@@ -411,7 +412,7 @@ class BlockchainEventService {
         type: isIncoming ? 'received' : 'sent',
         tokenSymbol: symbol,
         amount: amount,
-        from: tx.from!,
+        from: tx.from || '',
         to: toAddress,
         txHash: tx.hash,
         timestamp: Date.now()
@@ -425,15 +426,15 @@ class BlockchainEventService {
 
   // Process ERC721 token transfers from block data
   private async processERC721TransferFromBlock(
-    tx: any, 
+    tx: { input?: string; to?: string; from?: string; hash: string }, 
     address: string, 
     isIncoming: boolean
   ) {
     try {
-      const tokenAddress = tx.to!;
+      const tokenAddress = tx.to || '';
       
       // Parse transfer data
-      const data = tx.input;
+      const data = tx.input || '0x';
       const fromAddress = '0x' + data.slice(34, 74); // Extract 'from' address
       const toAddress = '0x' + data.slice(98, 138); // Extract 'to' address
       const tokenIdHex = data.slice(138); // Extract tokenId
@@ -445,7 +446,7 @@ class BlockchainEventService {
         const symbolHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_call', [{
           to: tokenAddress,
           data: '0x95d89b41' // symbol()
-        }, 'latest']);
+        }, 'latest']) as string;
         symbol = ethers.AbiCoder.defaultAbiCoder().decode(['string'], symbolHex)[0];
       } catch (error) {
         console.warn('Could not get NFT symbol:', error);

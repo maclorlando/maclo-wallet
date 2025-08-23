@@ -31,7 +31,7 @@ class TransactionMonitor {
   private monitoringInterval: NodeJS.Timeout | null = null;
 
   // Initialize provider for a network - we'll use fetch directly instead
-  private async makeRPCRequest(network: string, method: string, params: any[] = []): Promise<any> {
+  private async makeRPCRequest(network: string, method: string, params: unknown[] = []): Promise<unknown> {
     const response = await fetch('/api/rpc-proxy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -51,7 +51,7 @@ class TransactionMonitor {
   }
 
   // Start monitoring transactions for an address
-  public startMonitoring(address: string, network: string, rpcUrl: string) {
+  public startMonitoring(address: string, network: string, _rpcUrl: string) {
     if (this.isMonitoring && this.currentAddress === address && this.currentNetwork === network) {
       return; // Already monitoring the same address and network
     }
@@ -60,7 +60,7 @@ class TransactionMonitor {
     
     this.currentAddress = address;
     this.currentNetwork = network;
-    this.rpcUrls.set(network, rpcUrl); // Store RPC URL
+    this.rpcUrls.set(network, _rpcUrl); // Store RPC URL
     this.isMonitoring = true;
 
     // Start monitoring interval
@@ -131,11 +131,13 @@ class TransactionMonitor {
       if (receipt) {
         // Transaction has been mined
         let confirmations = 0;
+        const receiptData = receipt as { blockNumber: string; status: string };
+        
         try {
           // Get current block number to calculate confirmations
-          const currentBlockHex = await this.makeRPCRequest(network, 'eth_blockNumber', []);
+          const currentBlockHex = await this.makeRPCRequest(network, 'eth_blockNumber', []) as string;
           const currentBlock = parseInt(currentBlockHex, 16);
-          const blockNumber = parseInt(receipt.blockNumber, 16);
+          const blockNumber = parseInt(receiptData.blockNumber, 16);
           confirmations = currentBlock - blockNumber + 1;
         } catch {
           confirmations = 0;
@@ -143,9 +145,9 @@ class TransactionMonitor {
         
         const newStatus: TransactionStatus = {
           hash: txHash,
-          status: receipt.status === '0x1' ? 'confirmed' : 'failed',
+          status: receiptData.status === '0x1' ? 'confirmed' : 'failed',
           confirmations,
-          blockNumber: parseInt(receipt.blockNumber, 16),
+          blockNumber: parseInt(receiptData.blockNumber, 16),
           timestamp: Date.now()
         };
 

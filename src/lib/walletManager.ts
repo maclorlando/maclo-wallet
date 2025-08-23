@@ -543,7 +543,6 @@ export function migrateStoredTokens(): void {
 // Get ETH balance for an address on current network
 export async function getEthBalance(address: string): Promise<string> {
   try {
-    const networkConfig = getCurrentNetworkConfig();
     const currentNetwork = getCurrentNetwork();
     
     const response = await fetch('/api/rpc-proxy', {

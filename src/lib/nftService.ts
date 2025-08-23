@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { NETWORKS, getCurrentNetwork } from './walletManager';
+import { getCurrentNetwork } from './walletManager';
 import { NFT_CONTRACT_ADDRESSES, updateNFTContractAddresses } from './nftConfig';
 
 // NFT Contract ABI - only the functions we need
@@ -44,7 +44,7 @@ export class NFTService {
     // Create wallet without provider for now
     this.signer = new ethers.Wallet(privateKey);
     
-    const contractAddress = NFT_CONTRACT_ADDRESSES[network];
+    const contractAddress = NFT_CONTRACT_ADDRESSES[this.network];
     if (contractAddress) {
       this.contract = new ethers.Contract(contractAddress, NFT_ABI, this.signer);
     }
@@ -62,7 +62,7 @@ export class NFTService {
   }
 
   // Helper method to make RPC calls through proxy
-  private async makeRPCRequest(method: string, params: any[] = []): Promise<any> {
+  private async makeRPCRequest(method: string, params: unknown[] = []): Promise<string> {
     const response = await fetch('/api/rpc-proxy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -108,10 +108,10 @@ export class NFTService {
       const receipt = await tx.wait();
       
       // Find the NFTMinted event
-      const mintEvent = receipt.logs.find((log: any) => {
+      const mintEvent = receipt.logs.find((log: { topics: string[]; data: string }) => {
         try {
           const parsed = this.contract!.interface.parseLog(log);
-          return parsed.name === 'NFTMinted';
+          return parsed?.name === 'NFTMinted';
         } catch {
           return false;
         }
@@ -119,7 +119,7 @@ export class NFTService {
 
       if (mintEvent) {
         const parsed = this.contract!.interface.parseLog(mintEvent);
-        const tokenId = parsed.args[1].toString();
+        const tokenId = parsed?.args[1].toString() || '';
         
         return {
           success: true,
@@ -164,18 +164,18 @@ export class NFTService {
       const receipt = await tx.wait();
       
       // Find all NFTMinted events
-      const mintEvents = receipt.logs.filter((log: any) => {
+      const mintEvents = receipt.logs.filter((log: { topics: string[]; data: string }) => {
         try {
           const parsed = this.contract!.interface.parseLog(log);
-          return parsed.name === 'NFTMinted';
+          return parsed?.name === 'NFTMinted';
         } catch {
           return false;
         }
       });
 
-      const tokenIds = mintEvents.map((log: any) => {
+      const tokenIds = mintEvents.map((log: { topics: string[]; data: string }) => {
         const parsed = this.contract!.interface.parseLog(log);
-        return parsed.args[1].toString();
+        return parsed?.args[1].toString() || '';
       });
 
       return {
@@ -217,7 +217,7 @@ export class NFTService {
   }
 
   // Get NFT metadata
-  async getNFTMetadata(tokenId: string): Promise<any> {
+  async getNFTMetadata(tokenId: string): Promise<unknown> {
     if (!this.contract) {
       return null;
     }

@@ -13,16 +13,16 @@ interface MintNFTModalProps {
 }
 
 export default function MintNFTModal({ isOpen, onClose }: MintNFTModalProps) {
-  const { walletData, currentNetwork } = useWallet();
+  const { currentWallet, currentNetwork } = useWallet();
   const { toast } = useToast();
   const [isMinting, setIsMinting] = useState(false);
   const [mintResult, setMintResult] = useState<MintResult | null>(null);
   const [mintCount, setMintCount] = useState(1);
 
   const handleMint = async (count: number = 1) => {
-    if (!walletData?.privateKey) {
+    if (!currentWallet?.privateKey) {
       toast({
-        variant: 'destructive',
+        variant: 'error',
         title: 'Error',
         description: 'Wallet not available',
       });
@@ -33,11 +33,11 @@ export default function MintNFTModal({ isOpen, onClose }: MintNFTModalProps) {
     setMintResult(null);
 
     try {
-      const nftService = createNFTService(walletData.privateKey);
+      const nftService = createNFTService(currentWallet.privateKey);
       
       if (!nftService.isContractAvailable()) {
         toast({
-          variant: 'destructive',
+          variant: 'error',
           title: 'Contract Not Available',
           description: 'NFT contract is not deployed on this network yet',
         });
@@ -66,7 +66,7 @@ export default function MintNFTModal({ isOpen, onClose }: MintNFTModalProps) {
         });
       } else {
         toast({
-          variant: 'destructive',
+          variant: 'error',
           title: 'Minting Failed',
           description: result.error || 'Unknown error occurred',
         });
@@ -74,7 +74,7 @@ export default function MintNFTModal({ isOpen, onClose }: MintNFTModalProps) {
     } catch (error) {
       console.error('Minting error:', error);
       toast({
-        variant: 'destructive',
+        variant: 'error',
         title: 'Error',
         description: error instanceof Error ? error.message : 'Unknown error occurred',
       });
@@ -92,7 +92,7 @@ export default function MintNFTModal({ isOpen, onClose }: MintNFTModalProps) {
   const networkName = currentNetwork === 'ethereum-sepolia' ? 'Ethereum Sepolia' : 'Base Sepolia';
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Mint Test NFT">
+    <Modal open={isOpen} onOpenChange={(open) => !open && handleClose()} title="Mint Test NFT">
       <div className="space-y-6">
         {/* Network Info */}
         <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
@@ -118,7 +118,7 @@ export default function MintNFTModal({ isOpen, onClose }: MintNFTModalProps) {
                 {[1, 2, 3].map((count) => (
                   <Button
                     key={count}
-                    variant={mintCount === count ? 'default' : 'outline'}
+                    variant={mintCount === count ? 'primary' : 'secondary'}
                     onClick={() => setMintCount(count)}
                     className="flex-1"
                   >
@@ -216,7 +216,7 @@ export default function MintNFTModal({ isOpen, onClose }: MintNFTModalProps) {
             <div className="flex space-x-3">
               <Button
                 onClick={handleClose}
-                variant="outline"
+                variant="secondary"
                 className="flex-1"
               >
                 Close

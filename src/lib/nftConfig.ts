@@ -25,9 +25,9 @@ export function updateNFTContractAddresses(addresses: Record<string, string>) {
   
   // Also update the nftService addresses
   if (typeof window !== 'undefined') {
-    // @ts-ignore - accessing global function
+    // @ts-expect-error - accessing global function that may not exist
     if (window.updateNFTServiceAddresses) {
-      // @ts-ignore
+      // @ts-expect-error - calling global function with dynamic addresses
       window.updateNFTServiceAddresses(addresses);
     }
   }

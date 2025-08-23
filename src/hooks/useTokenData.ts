@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { coingeckoService } from '@/lib/coingeckoService';
-import { TokenInfo, getCurrentNetwork, getEthBalance, getCurrentNetworkConfig } from '@/lib/walletManager';
+import { TokenInfo, getCurrentNetwork } from '@/lib/walletManager';
 import { getFallbackTokenData } from '@/lib/fallbackData';
 
 // Token mapping for better CoinGecko ID matching
@@ -27,7 +27,6 @@ const tokenMapping: Record<string, string> = {
   'KNC': 'kyber-network-crystal'
 };
 import { useWallet } from '@/lib/walletContext';
-import { requestManager } from '@/lib/requestManager';
 
 export interface TokenData extends TokenInfo {
   price?: number;
@@ -67,7 +66,7 @@ export function useTokenData() {
     };
 
     return [nativeToken, ...customTokens];
-  }, [customTokens, currentNetwork]);
+  }, [customTokens]);
 
   // Fetch token balance for ERC-20 tokens
   const getTokenBalance = useCallback(async (address: string, decimals: number): Promise<string> => {
@@ -320,7 +319,7 @@ export function useTokenData() {
     setTokenData(newTokenData);
     setLastUpdate(new Date());
     setIsLoading(false);
-  }, [getAllTokens, fetchTokenData, currentNetwork]);
+  }, [getAllTokens, fetchTokenData]);
 
   // Refresh data for a specific token
   const refreshTokenData = useCallback(async (address: string) => {

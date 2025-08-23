@@ -115,12 +115,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Blockchain event handlers
-  const handleTransactionEvent = useCallback((event: TransactionEvent) => {
+  const handleTransactionEvent = useCallback((_event: TransactionEvent) => {
     // Don't refresh balances here - let the balance monitor handle it
     // The balance monitor will detect actual balance changes and trigger refresh
   }, []);
 
-  const handleBalanceUpdateEvent = useCallback((event: BalanceUpdateEvent) => {
+  const handleBalanceUpdateEvent = useCallback((_event: BalanceUpdateEvent) => {
     // Don't refresh balances here - let the balance monitor handle it
     // The balance monitor will detect actual balance changes and trigger refresh
   }, []);
@@ -517,7 +517,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       balanceMonitor.unsubscribe(handleBalanceChangeEvent);
       window.removeEventListener('triggerBalancePolling', handleBalancePollingEvent as EventListener);
     };
-  }, [handleTransactionEvent, handleBalanceUpdateEvent, handleBalanceChangeEvent, pollBalanceUntilChanged, refreshStoredData]);
+  }, [handleTransactionEvent, handleBalanceUpdateEvent, handleBalanceChangeEvent, pollBalanceUntilChanged]);
 
   // Start listening for blockchain events when wallet is loaded
   useEffect(() => {
@@ -554,7 +554,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       transactionMonitor.stopMonitoring();
       balanceMonitor.stopMonitoring();
     };
-     }, [currentWallet?.address, currentNetwork, isWalletUnlocked, customTokens]);
+     }, [currentWallet?.address, currentNetwork, isWalletUnlocked, customTokens, currentNetworkConfig.rpcUrl]);
 
   const value = useMemo(() => ({
     currentWallet,
