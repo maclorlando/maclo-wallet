@@ -38,7 +38,8 @@ import TransactionNotification from '@/components/TransactionNotification';
 import { 
   Cog6ToothIcon,
   UserIcon,
-  KeyIcon
+  KeyIcon,
+  ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline';
 
 interface TokenBalance {
@@ -937,6 +938,12 @@ export default function Home() {
                 </div>
                 <div className="flex items-center gap-2">
                   <NetworkSwitcher />
+                  <button 
+                    onClick={handleLogout}
+                    className="px-3 py-1.5 text-xs font-medium text-red-300 hover:text-red-200 transition-all duration-200 rounded-lg hover:bg-red-500/20 border border-red-500/30 hover:border-red-400/50 shadow-sm"
+                  >
+                    Logout
+                  </button>
                 </div>
               </div>
             </div>
@@ -968,6 +975,15 @@ export default function Home() {
                   icon={<KeyIcon />}
                 >
                   Recover Mnemonic
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onClick={() => {
+                    handleLogout();
+                    setShowContextMenu(false);
+                  }}
+                  icon={<ArrowRightOnRectangleIcon />}
+                >
+                  Logout
                 </ContextMenuItem>
               </ContextMenu>
             </div>
