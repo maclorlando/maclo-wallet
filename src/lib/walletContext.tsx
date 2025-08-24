@@ -14,9 +14,12 @@ import {
   removeCustomToken,
   addCustomNFT,
   removeCustomNFT,
+  scanAllOwnedNFTs,
   initializeDefaultTokens,
   clearNetworkTokens,
+  clearNetworkNFTs,
   migrateStoredTokens,
+  migrateNFTStorage,
   getCurrentNetwork,
   setCurrentNetwork,
   initializeNetwork,
@@ -24,7 +27,7 @@ import {
   getAllAccountsFromMnemonic
 } from './walletManager';
 import { blockchainEventService, TransactionEvent, BalanceUpdateEvent } from './blockchainEvents';
-import { transactionMonitor } from './transactionMonitor';
+// import { transactionMonitor } from './transactionMonitor';
 import { balanceMonitor, BalanceChangeEvent } from './balanceMonitor';
 
 interface WalletContextType {
@@ -57,6 +60,7 @@ interface WalletContextType {
   // NFT management functionality
   addNFT: (nftInfo: NFTInfo) => void;
   removeNFT: (address: string, tokenId: string) => void;
+  refreshNFTs: () => Promise<void>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -114,11 +118,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }, 1000);
   }, []);
 
-  // Blockchain event handlers
-  const handleTransactionEvent = useCallback((_event: TransactionEvent) => {
-    // Don't refresh balances here - let the balance monitor handle it
-    // The balance monitor will detect actual balance changes and trigger refresh
-  }, []);
+
 
   const handleBalanceUpdateEvent = useCallback((_event: BalanceUpdateEvent) => {
     // Don't refresh balances here - let the balance monitor handle it
@@ -129,12 +129,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const pollBalanceUntilChanged = useCallback(async (
     tokenAddress?: string,
     expectedOldBalance?: string,
-    maxAttempts: number = 20
+    maxAttempts: number = 10
   ) => {
     if (!currentWallet?.address) return;
     
     let attempts = 0;
-    const pollInterval = 1000; // 1 second
+    const pollInterval = 500; // 0.5 seconds for faster detection
     
          const checkBalance = async (): Promise<boolean> => {
        attempts++;
@@ -204,37 +204,37 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
     };
     
-    // Start polling
-    const poll = async () => {
-      const changed = await checkBalance();
-      
-             if (changed) {
-         return;
-       }
+         // Start polling
+     const poll = async () => {
+       const changed = await checkBalance();
        
-       if (attempts >= maxAttempts) {
-         refreshBalances();
-         return;
-       }
-      
-      // Continue polling
-      setTimeout(poll, pollInterval);
-    };
-    
-    // Start with 1 second delay to let blockchain settle
-    setTimeout(poll, pollInterval);
+              if (changed) {
+          return;
+        }
+        
+        if (attempts >= maxAttempts) {
+          refreshBalances();
+          return;
+        }
+       
+       // Continue polling
+       setTimeout(poll, pollInterval);
+     };
+     
+     // Start with 0.5 second delay to let blockchain settle
+     setTimeout(poll, pollInterval);
   }, [currentWallet?.address, currentNetwork, refreshBalances]);
 
   // Poll until balance is stable (for received tokens or ETH)
   const pollBalanceUntilStable = useCallback(async (
     tokenAddress: string,
     expectedBalance: string,
-    maxAttempts: number = 10
+    maxAttempts: number = 6
   ) => {
     if (!currentWallet?.address) return;
     
     let attempts = 0;
-    const pollInterval = 1000; // 1 second
+    const pollInterval = 500; // 0.5 seconds for faster detection
     let lastBalance = expectedBalance;
     let stableCount = 0;
     const requiredStableChecks = 3; // Balance must be stable for 3 consecutive checks
@@ -317,34 +317,37 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
     };
     
-    // Start polling
-    const poll = async () => {
-      const stable = await checkBalance();
-      
-             if (stable) {
-         return;
-       }
+         // Start polling
+     const poll = async () => {
+       const stable = await checkBalance();
        
-       if (attempts >= maxAttempts) {
-         refreshBalances();
-         return;
-       }
-      
-      // Continue polling
-      setTimeout(poll, pollInterval);
-    };
-    
-    // Start with 1 second delay to let blockchain settle
-    setTimeout(poll, pollInterval);
+              if (stable) {
+          return;
+        }
+        
+        if (attempts >= maxAttempts) {
+          refreshBalances();
+          return;
+        }
+       
+       // Continue polling
+       setTimeout(poll, pollInterval);
+     };
+     
+     // Start with 0.5 second delay to let blockchain settle
+     setTimeout(poll, pollInterval);
   }, [currentWallet?.address, currentNetwork, refreshBalances]);
 
   const handleBalanceChangeEvent = useCallback((event: BalanceChangeEvent) => {
-    // Show notification for received tokens
+    // Show notification for received tokens and ETH
     if (event.type === 'TOKEN' && parseFloat(event.newBalance) > parseFloat(event.oldBalance)) {
       // Use a simple alert or console log instead of toast to avoid hook issues
       console.log(`🎉 Token Received! You received ${parseFloat(event.newBalance) - parseFloat(event.oldBalance)} ${event.tokenSymbol || 'tokens'}`);
       
       // We'll handle the toast notification in the TransactionNotification component
+    } else if (event.type === 'ETH' && parseFloat(event.newBalance) > parseFloat(event.oldBalance)) {
+      // Show notification for received ETH
+      console.log(`🎉 ETH Received! You received ${parseFloat(event.newBalance) - parseFloat(event.oldBalance)} ETH`);
     }
     
     // For received tokens, we need to be more careful about when to refresh
@@ -358,36 +361,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const oldBalance = parseFloat(event.oldBalance);
       const newBalance = parseFloat(event.newBalance);
       
-             if (newBalance < oldBalance) {
-         // ETH was sent - poll until balance stabilizes
-         pollBalanceUntilStable('0x0000000000000000000000000000000000000000', event.newBalance);
-       } else {
-         // ETH was received - just refresh
-         pollBalanceUntilChanged();
-       }
+      if (newBalance < oldBalance) {
+        // ETH was sent - trigger immediate refresh
+        pollBalanceUntilChanged();
+      } else {
+        // ETH was received - trigger immediate refresh
+        pollBalanceUntilChanged();
+      }
     }
   }, [pollBalanceUntilChanged, pollBalanceUntilStable]);
-
-  const handleNetworkChange = useCallback((network: string) => {
-    if (NETWORKS[network]) {
-      setCurrentNetworkState(network);
-      setCurrentNetworkConfig(NETWORKS[network]);
-      // Update the network in walletManager.ts to keep it synchronized
-      setCurrentNetwork(network);
-      // Clear tokens that don't belong to the new network
-      clearNetworkTokens();
-      // Initialize default tokens for the new network
-      initializeDefaultTokens();
-      // Refresh tokens for the new network
-      refreshStoredData();
-      // Trigger balance refresh for the new network
-      refreshBalances();
-      // Force a fresh balance fetch for the new network
-      setTimeout(() => {
-        refreshBalances();
-      }, 100);
-    }
-  }, [refreshStoredData, refreshBalances]);
 
   // Function to switch between accounts
   const switchAccount = useCallback((accountIndex: number) => {
@@ -432,14 +414,126 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   // NFT management functions
   const addNFT = useCallback((nftInfo: NFTInfo) => {
+    console.log(`Adding NFT: ${nftInfo.name} #${nftInfo.tokenId}`);
+    
+    // Check if NFT already exists to prevent duplicates
+    const currentNFTs = getCustomNFTs();
+    const existingNFT = currentNFTs.find(nft => 
+      nft.address.toLowerCase() === nftInfo.address.toLowerCase() && 
+      nft.tokenId === nftInfo.tokenId
+    );
+    
+    if (existingNFT) {
+      console.log(`NFT already exists: ${nftInfo.name} #${nftInfo.tokenId}`);
+      return;
+    }
+    
+    // Add to localStorage first
     addCustomNFT(nftInfo);
-    refreshStoredData();
-  }, [refreshStoredData]);
+    
+    // Update the state immediately
+    const updatedNFTs = [...currentNFTs, nftInfo];
+    setCustomNFTs(updatedNFTs);
+    
+    console.log(`NFT added. Total NFTs: ${updatedNFTs.length}`);
+  }, [setCustomNFTs]);
 
   const removeNFT = useCallback((address: string, tokenId: string) => {
+    console.log(`Removing NFT: ${address} #${tokenId}`);
+    
+    // Remove from localStorage first
     removeCustomNFT(address, tokenId);
-    refreshStoredData();
-  }, [refreshStoredData]);
+    
+    // Update the state immediately
+    const currentNFTs = getCustomNFTs();
+    const updatedNFTs = currentNFTs.filter(nft => 
+      !(nft.address.toLowerCase() === address.toLowerCase() && nft.tokenId === tokenId)
+    );
+    setCustomNFTs(updatedNFTs);
+    
+    console.log(`NFT removed. Total NFTs remaining: ${updatedNFTs.length}`);
+  }, [setCustomNFTs]);
+
+  // NFT refresh function
+  const refreshNFTs = useCallback(async () => {
+    if (!currentWallet?.address) {
+      console.log('No wallet address available for NFT refresh');
+      return;
+    }
+    
+    try {
+      console.log('Starting NFT refresh...');
+      console.log(`Wallet address: ${currentWallet.address}`);
+      console.log(`Network: ${currentNetwork}`);
+      
+      // Use Alchemy API to scan for all NFTs
+      console.log('Using Alchemy API to scan for NFTs...');
+      const allOwnedNFTs = await scanAllOwnedNFTs(currentWallet.address, currentNetwork);
+      
+      console.log(`Alchemy scan found ${allOwnedNFTs.length} NFTs`);
+      
+      // Clear all existing NFTs for current network and add the new ones immediately
+      if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+        localStorage.setItem(`customNFTs_${currentNetwork}`, JSON.stringify(allOwnedNFTs));
+      }
+      setCustomNFTs(allOwnedNFTs);
+      console.log(`Total NFTs found for ${currentNetwork}: ${allOwnedNFTs.length}`);
+    } catch (error) {
+      console.error('Error refreshing NFTs:', error);
+      throw error; // Re-throw to let the component handle it
+    }
+  }, [currentWallet?.address, currentNetwork, setCustomNFTs]);
+
+  // Blockchain event handlers - moved after refreshNFTs to avoid dependency issues
+  const handleTransactionEvent = useCallback((event: TransactionEvent) => {
+    // Handle NFT transaction events specifically
+    if (event.contractAddress) {
+      // This is an NFT transaction
+      console.log(`NFT transaction detected: ${event.type} ${event.tokenSymbol}`);
+      
+      // Trigger NFT refresh immediately for faster response
+      if (event.contractAddress && currentWallet?.address) {
+        console.log(`Triggering immediate NFT refresh for ${event.type} transaction`);
+        // Single immediate refresh for better UX
+        refreshNFTs();
+      }
+    }
+    
+    // Don't refresh balances here - let the balance monitor handle it
+    // The balance monitor will detect actual balance changes and trigger refresh
+  }, [refreshNFTs, currentWallet?.address]);
+
+  // Network change handler - moved after refreshNFTs to avoid dependency issues
+  const handleNetworkChange = useCallback((network: string) => {
+    if (NETWORKS[network]) {
+      console.log(`🔄 Switching to network: ${network}`);
+      
+      // First, clear the current NFT state to prevent "snap back"
+      setCustomNFTs([]);
+      
+      setCurrentNetworkState(network);
+      setCurrentNetworkConfig(NETWORKS[network]);
+      // Update the network in walletManager.ts to keep it synchronized
+      setCurrentNetwork(network);
+      // Clear tokens that don't belong to the new network
+      clearNetworkTokens();
+      // Initialize default tokens for the new network
+      initializeDefaultTokens();
+      // Refresh tokens for the new network
+      refreshStoredData();
+      // Trigger balance refresh for the new network
+      refreshBalances();
+      // Force a fresh balance fetch for the new network
+      setTimeout(() => {
+        refreshBalances();
+      }, 100);
+      // Refresh NFTs for the new network with longer delay to ensure network is fully switched
+      setTimeout(() => {
+        console.log(`🖼️ Refreshing NFTs after network switch to ${network}`);
+        refreshNFTs();
+      }, 300); // Reduced delay since we're now clearing state first
+    }
+  }, [refreshStoredData, refreshBalances, refreshNFTs]);
 
   // Load all accounts from mnemonic when wallet is unlocked
   useEffect(() => {
@@ -477,6 +571,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setCurrentNetworkConfig(NETWORKS[network]);
     initializeDefaultTokens();
     migrateStoredTokens(); // Migrate any stored tokens with old URLs
+    migrateNFTStorage(); // Migrate NFTs to network-specific storage
     refreshStoredData();
     
     // Load account names from localStorage
@@ -509,52 +604,110 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // Listen for blockchain event check events from SendTransaction component
+    const handleBlockchainEventCheck = (event: CustomEvent) => {
+      const { address, network, type } = event.detail;
+      if (address && network) {
+        if (type === 'NFT') {
+          // Use enhanced NFT transfer detection
+          blockchainEventService.checkForNFTTransfers(address);
+        } else {
+          blockchainEventService.triggerTransactionCheck(address);
+        }
+      }
+    };
+
+    // Listen for NFT refresh events from blockchain event service
+    const handleNFTRefresh = (event: CustomEvent) => {
+      const { address, contractAddress } = event.detail;
+      if (address && address === currentWallet?.address) {
+        console.log(`NFT refresh event triggered for contract: ${contractAddress}`);
+        // Refresh all NFTs
+        refreshNFTs();
+      }
+    };
+
     window.addEventListener('triggerBalancePolling', handleBalancePollingEvent as EventListener);
+    window.addEventListener('triggerBlockchainEventCheck', handleBlockchainEventCheck as EventListener);
+    window.addEventListener('triggerNFTRefresh', handleNFTRefresh as EventListener);
 
     return () => {
       blockchainEventService.unsubscribeFromTransactions(handleTransactionEvent);
       blockchainEventService.unsubscribeFromBalanceUpdates(handleBalanceUpdateEvent);
       balanceMonitor.unsubscribe(handleBalanceChangeEvent);
       window.removeEventListener('triggerBalancePolling', handleBalancePollingEvent as EventListener);
+      window.removeEventListener('triggerBlockchainEventCheck', handleBlockchainEventCheck as EventListener);
+      window.removeEventListener('triggerNFTRefresh', handleNFTRefresh as EventListener);
     };
-  }, [handleTransactionEvent, handleBalanceUpdateEvent, handleBalanceChangeEvent, pollBalanceUntilChanged]);
+  }, [handleTransactionEvent, handleBalanceUpdateEvent, handleBalanceChangeEvent, pollBalanceUntilChanged, refreshNFTs]);
 
-  // Start listening for blockchain events when wallet is loaded
+      // Start listening for blockchain events when wallet is loaded
   useEffect(() => {
     if (currentWallet?.address && currentNetworkConfig.rpcUrl && isWalletUnlocked) {
              blockchainEventService.startListening(
-         currentWallet.address,
-         currentNetwork,
-         '/api/rpc-proxy'
-       );
-       
-       // Also start transaction monitoring
-       transactionMonitor.startMonitoring(
-         currentWallet.address,
-         currentNetwork,
-         '/api/rpc-proxy'
-       );
+        currentWallet.address,
+        currentNetwork,
+        '/api/rpc-proxy'
+      );
+      
+             // Transaction monitoring is handled by blockchainEventService
+      // transactionMonitor.startMonitoring(
+      //   currentWallet.address,
+      //   currentNetwork,
+      //   '/api/rpc-proxy'
+      // );
 
-       // Start balance monitoring with current tokens
-       const tokenAddresses = customTokens.map(token => token.address);
-       balanceMonitor.startMonitoring(
-         currentWallet.address,
-         currentNetwork,
-         '/api/rpc-proxy',
-         tokenAddresses
-       );
-    } else {
-      blockchainEventService.stopListening();
-      transactionMonitor.stopMonitoring();
-      balanceMonitor.stopMonitoring();
+        // Start balance monitoring with current tokens
+        const tokenAddresses = customTokens.map(token => token.address);
+        balanceMonitor.startMonitoring(
+          currentWallet.address,
+          currentNetwork,
+          '/api/rpc-proxy',
+          tokenAddresses
+        );
+
+        // Set up periodic NFT detection check every 30 seconds
+        const nftDetectionInterval = setInterval(() => {
+          if (currentWallet?.address) {
+            console.log(`🖼️ Periodic NFT detection check for ${currentWallet.address}`);
+            blockchainEventService.triggerNFTDetection(currentWallet.address);
+          }
+        }, 30000); // Check every 30 seconds
+
+        return () => {
+          clearInterval(nftDetectionInterval);
+        };
+     } else {
+       blockchainEventService.stopListening();
+       // transactionMonitor.stopMonitoring();
+       balanceMonitor.stopMonitoring();
+     }
+
+     return () => {
+       blockchainEventService.stopListening();
+       // transactionMonitor.stopMonitoring();
+       balanceMonitor.stopMonitoring();
+     };
+      }, [currentWallet?.address, currentNetwork, isWalletUnlocked, customTokens, currentNetworkConfig.rpcUrl]);
+
+  // Trigger NFT refresh when network changes
+  useEffect(() => {
+    if (currentWallet?.address && isWalletUnlocked) {
+      console.log(`🖼️ Network changed to ${currentNetwork}, loading NFTs for this network`);
+      // Load NFTs for the current network immediately from localStorage
+      const networkNFTs = getCustomNFTs();
+      setCustomNFTs(networkNFTs);
+      console.log(`📦 Loaded ${networkNFTs.length} NFTs from localStorage for ${currentNetwork}`);
+      
+      // Then trigger a fresh scan to ensure we have the latest NFTs
+      const timeoutId = setTimeout(() => {
+        console.log(`🔄 Triggering fresh NFT scan for ${currentNetwork}`);
+        refreshNFTs();
+      }, 500);
+      
+      return () => clearTimeout(timeoutId);
     }
-
-    return () => {
-      blockchainEventService.stopListening();
-      transactionMonitor.stopMonitoring();
-      balanceMonitor.stopMonitoring();
-    };
-     }, [currentWallet?.address, currentNetwork, isWalletUnlocked, customTokens, currentNetworkConfig.rpcUrl]);
+  }, [currentNetwork, currentWallet?.address, isWalletUnlocked, refreshNFTs]);
 
   const value = useMemo(() => ({
     currentWallet,
@@ -586,6 +739,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // NFT management functionality
     addNFT,
     removeNFT,
+    refreshNFTs,
   }), [
     currentWallet,
     storedAddresses,
@@ -609,6 +763,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     removeToken,
     addNFT,
     removeNFT,
+    refreshNFTs,
   ]);
 
   return (

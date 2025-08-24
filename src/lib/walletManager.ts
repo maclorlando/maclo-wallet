@@ -4,6 +4,7 @@ import { deriveAddress } from './walletUtils';
 import { ec as EC } from 'elliptic';
 import hdkey from 'hdkey';
 
+
 // Initialize elliptic curve
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ec = new EC('secp256k1');
@@ -428,9 +429,10 @@ export function removeCustomToken(address: string): void {
 }
 
 
-// NFT management
+// NFT management - Network-specific storage
 export function addCustomNFT(nftInfo: NFTInfo): void {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const network = getCurrentNetwork();
     const nfts = getCustomNFTs();
     // Check if NFT already exists
     const existingIndex = nfts.findIndex(n => 
@@ -442,13 +444,14 @@ export function addCustomNFT(nftInfo: NFTInfo): void {
     } else {
       nfts.push(nftInfo); // Add new NFT
     }
-    localStorage.setItem('customNFTs', JSON.stringify(nfts));
+    localStorage.setItem(`customNFTs_${network}`, JSON.stringify(nfts));
   }
 }
 
 export function getCustomNFTs(): NFTInfo[] {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-    const stored = localStorage.getItem('customNFTs');
+    const network = getCurrentNetwork();
+    const stored = localStorage.getItem(`customNFTs_${network}`);
     return stored ? JSON.parse(stored) : [];
   }
   return [];
@@ -456,11 +459,110 @@ export function getCustomNFTs(): NFTInfo[] {
 
 export function removeCustomNFT(address: string, tokenId: string): void {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const network = getCurrentNetwork();
     const nfts = getCustomNFTs();
     const filtered = nfts.filter(n => 
       !(n.address.toLowerCase() === address.toLowerCase() && n.tokenId === tokenId)
     );
-    localStorage.setItem('customNFTs', JSON.stringify(filtered));
+    localStorage.setItem(`customNFTs_${network}`, JSON.stringify(filtered));
+  }
+}
+
+// Clear NFTs for current network
+export function clearNetworkNFTs(): void {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const network = getCurrentNetwork();
+    localStorage.removeItem(`customNFTs_${network}`);
+    console.log(`🗑️ Cleared NFTs for network: ${network}`);
+  }
+}
+
+// Migrate old NFT storage format to network-specific format
+export function migrateNFTStorage(): void {
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const oldNFTs = localStorage.getItem('customNFTs');
+    if (oldNFTs) {
+      try {
+        const nfts = JSON.parse(oldNFTs);
+        if (Array.isArray(nfts) && nfts.length > 0) {
+          // Migrate to current network
+          const currentNet = getCurrentNetwork();
+          localStorage.setItem(`customNFTs_${currentNet}`, oldNFTs);
+          localStorage.removeItem('customNFTs');
+          console.log(`📦 Migrated ${nfts.length} NFTs to network-specific storage for ${currentNet}`);
+        }
+      } catch (error) {
+        console.error('Error migrating NFT storage:', error);
+        localStorage.removeItem('customNFTs'); // Remove corrupted data
+      }
+    }
+  }
+}
+
+// Legacy support - keep for backward compatibility
+export const BASE_SEPOLIA_CONFIG = NETWORKS['base-sepolia'];
+export const DEFAULT_TOKENS_LEGACY = DEFAULT_TOKENS['base-sepolia'];
+
+// Simple Alchemy API-based NFT scanning
+export async function scanAllOwnedNFTs(
+  walletAddress: string, 
+  network: string
+): Promise<NFTInfo[]> {
+  try {
+    console.log(`🔍 Alchemy NFT scan for wallet: ${walletAddress}`);
+    console.log(`🌐 Network: ${network}`);
+    
+    // Get the appropriate Alchemy NFT URL based on network
+    let baseURL: string;
+    if (network === 'base-sepolia') {
+      baseURL = process.env.NEXT_PUBLIC_BASE_NFT_URL || '';
+    } else if (network === 'ethereum-sepolia') {
+      baseURL = process.env.NEXT_PUBLIC_ETH_NFT_URL || '';
+    } else {
+      throw new Error(`Unsupported network: ${network}`);
+    }
+    
+    if (!baseURL) {
+      throw new Error(`No Alchemy NFT URL configured for network: ${network}`);
+    }
+    
+    // Build the URL with query parameters
+    const url = `${baseURL}?owner=${walletAddress}&withMetadata=true&pageSize=100`;
+    
+    console.log(`🔗 Fetching from: ${url}`);
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Alchemy API error response:`, errorText);
+      throw new Error(`Alchemy API request failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    const nfts = data.ownedNfts || [];
+    
+    console.log(`✅ Alchemy API found ${nfts.length} NFTs`);
+    
+    // Convert Alchemy NFT format to our NFTInfo format
+    const convertedNFTs: NFTInfo[] = nfts.map((nft: {
+      contract: { address: string; name?: string; symbol?: string };
+      tokenId: string;
+      name?: string;
+      image?: { cachedUrl?: string; originalUrl?: string };
+    }) => ({
+      address: nft.contract.address,
+      tokenId: nft.tokenId,
+      name: nft.name || nft.contract.name || 'Unknown NFT',
+      symbol: nft.contract.symbol || 'NFT',
+      imageUrl: nft.image?.cachedUrl || nft.image?.originalUrl || undefined
+    }));
+    
+    console.log(`✅ Converted ${convertedNFTs.length} NFTs to our format`);
+    return convertedNFTs;
+  } catch (error) {
+    console.error('❌ Error in Alchemy NFT scan:', error);
+    return [];
   }
 }
 
@@ -617,7 +719,3 @@ export function clearImageCache(): void {
 export interface TokenInfoWithImage extends TokenInfo {
   imageUrl?: string;
 }
-
-// Legacy support - keep for backward compatibility
-export const BASE_SEPOLIA_CONFIG = NETWORKS['base-sepolia'];
-export const DEFAULT_TOKENS_LEGACY = DEFAULT_TOKENS['base-sepolia'];

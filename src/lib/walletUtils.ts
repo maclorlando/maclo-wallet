@@ -58,8 +58,8 @@ export function encodeERC20TransferData(to: string, amount: string, decimals: nu
     // Remove 0x prefix if present
     const cleanTo = to.startsWith('0x') ? to.slice(2) : to;
     
-    // Convert amount to the smallest unit (e.g., wei for ETH, smallest unit for tokens)
-    // For tokens with decimals, multiply by 10^decimals
+    // Convert amount to the smallest unit using simple multiplication
+    // This was the working approach before we added ethers
     const amountInSmallestUnit = BigInt(Math.floor(Number(amount) * Math.pow(10, decimals)));
     
     // Convert to hex and pad to 32 bytes (64 hex characters)
@@ -70,7 +70,16 @@ export function encodeERC20TransferData(to: string, amount: string, decimals: nu
                        cleanTo.padStart(64, '0') + 
                        amountHex;
     
-    // Return without 0x prefix since it will be added later
+    console.log('ERC20 transfer encoding:', {
+        to: cleanTo,
+        amount,
+        decimals,
+        amountInSmallestUnit: amountInSmallestUnit.toString(),
+        amountHex,
+        encodedData: '0x' + encodedData
+    });
+    
+    // Return without 0x prefix since the transaction construction will add it
     return encodedData;
 }
 
@@ -89,7 +98,7 @@ export function encodeERC721TransferData(from: string, to: string, tokenId: stri
                        cleanTo.padStart(64, '0') + 
                        tokenIdHex;
     
-    // Return without 0x prefix since it will be added later
+    // Return without 0x prefix since the transaction construction will add it
     return encodedData;
 }
 
@@ -154,6 +163,9 @@ export async function getNonce(config: WalletConfig, address: string): Promise<n
 
 export async function estimateGas(config: WalletConfig, from: string, to: string, valueEth: string, data: string = "0x"): Promise<number> {
     const valueWei = ethToWeiHex(valueEth);
+    
+    console.log('estimateGas called with:', { from, to, valueEth, valueWei, data });
+    
     if (config.provider) {
         const gasHex: string = await config.provider.send("eth_estimateGas", [{
             from,
@@ -174,7 +186,15 @@ export async function estimateGas(config: WalletConfig, from: string, to: string
                 data: data
             }]
         });
-        return parseInt(res.data.result, 16);
+        
+        if (res.data.error) {
+            console.error('estimateGas error:', res.data.error);
+            throw new Error(`Gas estimation failed: ${res.data.error.message || res.data.error}`);
+        }
+        
+        const gasLimit = parseInt(res.data.result, 16);
+        console.log('estimateGas result:', gasLimit);
+        return gasLimit;
     }
 }
 
@@ -209,14 +229,14 @@ export async function sendRawTransaction(config: WalletConfig, rawTxHex: string)
 
 function toBuffer(numOrHex: number | string): Buffer {
     if (typeof numOrHex === "number") {
-        if (numOrHex === 0) return Buffer.alloc(32, 0); // 32-byte zero buffer for Ethereum
+        if (numOrHex === 0) return Buffer.alloc(0); // Empty buffer for zero values
         let hex = numOrHex.toString(16);
         if (hex.length % 2) hex = "0" + hex; // pad to even length
         return Buffer.from(hex, "hex");
     } else {
         let hex = numOrHex.toLowerCase();
         if (hex.startsWith("0x")) hex = hex.slice(2);
-        if (hex === "" || /^0+$/.test(hex)) return Buffer.alloc(32, 0); // 32-byte zero buffer for Ethereum
+        if (hex === "" || /^0+$/.test(hex)) return Buffer.alloc(0); // Empty buffer for zero values
         if (hex.length % 2) hex = "0" + hex; // pad to even length
         return Buffer.from(hex, "hex");
     }
@@ -238,10 +258,23 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
     // Ensure data has 0x prefix
     const cleanData = data.startsWith('0x') ? data : '0x' + data;
 
+    // Convert gasPrice to number for RLP encoding
+    const gasPriceNum = parseInt(gasPrice, 16);
+
+    console.log('Transaction construction:', {
+        nonce,
+        gasPrice: gasPrice,
+        gasPriceNum,
+        gasLimit,
+        valueWei,
+        cleanData,
+        chainId
+    });
+
     // Build unsigned tx with all numeric fields cleaned
     const txData = [
         toBuffer(nonce),
-        toBuffer(gasPrice),
+        toBuffer(gasPriceNum),
         toBuffer(gasLimit),
         Buffer.from(to.slice(2), "hex"), // address without 0x
         toBuffer(valueWei),
@@ -277,7 +310,7 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
 
     const signedTxData = [
         toBuffer(nonce),
-        toBuffer(gasPrice),
+        toBuffer(gasPriceNum),
         toBuffer(gasLimit),
         Buffer.from(to.slice(2), "hex"),
         toBuffer(valueWei),
@@ -296,7 +329,11 @@ export async function buildAndSendRawTx(config: WalletConfig, to: string, valueE
 
 // New function for ERC20 token transfers
 export async function sendERC20Token(config: WalletConfig, tokenAddress: string, to: string, amount: string, decimals: number = 18) {
+    console.log('sendERC20Token called with:', { tokenAddress, to, amount, decimals });
+    
     const transferData = encodeERC20TransferData(to, amount, decimals);
+    console.log('ERC20 transfer data:', transferData);
+    
     const result = await buildAndSendRawTx(config, tokenAddress, "0", transferData);
     return result;
 }

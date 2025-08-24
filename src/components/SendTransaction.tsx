@@ -79,13 +79,36 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
   }, [isOpen, preSelectedToken, preSelectedNFT, currentTxHash]);
 
   const handleSendTransaction = async () => {
-    if (!toAddress || !amount || !currentWallet) {
+    // Validate based on transfer type
+    if (!toAddress || !currentWallet) {
       toast({
         variant: 'error',
         title: 'Error',
         description: 'Please fill in all required fields',
       });
       return;
+    }
+
+    if (transferType === 'ETH' || transferType === 'ERC20') {
+      if (!amount) {
+        toast({
+          variant: 'error',
+          title: 'Error',
+          description: 'Please enter an amount',
+        });
+        return;
+      }
+    }
+
+    if (transferType === 'ERC721') {
+      if (!nftAddress || !tokenId) {
+        toast({
+          variant: 'error',
+          title: 'Error',
+          description: 'Please fill in NFT address and token ID',
+        });
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -263,6 +286,24 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
                    transferType: 'sent'
                  }
                }));
+             } else if (transferType === 'ERC721') {
+               // For NFT transactions, trigger blockchain event check for immediate detection
+               window.dispatchEvent(new CustomEvent('triggerBalancePolling', {
+                 detail: {
+                   transferType: 'sent'
+                 }
+               }));
+               
+                               // Also trigger blockchain event service to check for NFT transfers
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent('triggerBlockchainEventCheck', {
+                    detail: {
+                      address: currentWallet.address,
+                      network: currentNetwork,
+                      type: 'NFT'
+                    }
+                  }));
+                }, 2000); // Wait 2 seconds for transaction to be mined
              }
            } else if (status.status === 'failed') {
              toast({
@@ -350,6 +391,21 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
      }
    };
 
+   const handleTransferTypeChange = (newType: 'ETH' | 'ERC20' | 'ERC721') => {
+     setTransferType(newType);
+     if (newType === 'ETH') {
+       setSelectedToken('0x0000000000000000000000000000000000000000');
+     } else if (newType === 'ERC20') {
+       // Keep current token selection or default to first available token
+       if (selectedToken === '0x0000000000000000000000000000000000000000') {
+         const firstToken = customTokens.find(token => token.address !== '0x0000000000000000000000000000000000000000');
+         if (firstToken) {
+           setSelectedToken(firstToken.address);
+         }
+       }
+     }
+   };
+
   if (!isOpen) return null;
 
   return (
@@ -367,24 +423,66 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
 
         <div className="jupiter-modal-content">
           <div className="jupiter-form">
-            {/* Token Selection Dropdown */}
+            {/* Transfer Type Selection */}
             <div>
-              <label className="block text-sm font-medium text-white mb-2">Select Token</label>
+              <label className="block text-sm font-medium text-white mb-2">Transfer Type</label>
               <select
-                value={selectedToken}
-                onChange={(e) => handleTokenChange(e.target.value)}
+                value={transferType}
+                onChange={(e) => handleTransferTypeChange(e.target.value as 'ETH' | 'ERC20' | 'ERC721')}
                 className="jupiter-input"
               >
-                <option value="0x0000000000000000000000000000000000000000">ETH</option>
-                {customTokens
-                  .filter(token => token.address !== '0x0000000000000000000000000000000000000000')
-                  .map((token) => (
-                    <option key={token.address} value={token.address}>
-                      {token.symbol} - {token.name}
-                    </option>
-                  ))}
+                <option value="ETH">ETH</option>
+                <option value="ERC20">Token</option>
+                <option value="ERC721">NFT</option>
               </select>
             </div>
+
+            {/* Token Selection Dropdown - Only show for ETH/ERC20 */}
+            {transferType !== 'ERC721' && (
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">Select Token</label>
+                <select
+                  value={selectedToken}
+                  onChange={(e) => handleTokenChange(e.target.value)}
+                  className="jupiter-input"
+                >
+                  <option value="0x0000000000000000000000000000000000000000">ETH</option>
+                  {customTokens
+                    .filter(token => token.address !== '0x0000000000000000000000000000000000000000')
+                    .map((token) => (
+                      <option key={token.address} value={token.address}>
+                        {token.symbol} - {token.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+
+            {/* NFT Fields - Only show for ERC721 */}
+            {transferType === 'ERC721' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">NFT Contract Address</label>
+                  <input
+                    type="text"
+                    value={nftAddress}
+                    onChange={(e) => setNftAddress(e.target.value)}
+                    placeholder="0x..."
+                    className="jupiter-input font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">Token ID</label>
+                  <input
+                    type="text"
+                    value={tokenId}
+                    onChange={(e) => setTokenId(e.target.value)}
+                    placeholder="123"
+                    className="jupiter-input"
+                  />
+                </div>
+              </>
+            )}
 
             {/* To Address */}
             <div>
@@ -415,31 +513,7 @@ export default function SendTransaction({ isOpen, onClose, preSelectedToken, pre
               </div>
             )}
 
-            {/* NFT Fields */}
-            {transferType === 'ERC721' && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">NFT Contract Address</label>
-                  <input
-                    type="text"
-                    value={nftAddress}
-                    onChange={(e) => setNftAddress(e.target.value)}
-                    placeholder="0x..."
-                    className="jupiter-input font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">Token ID</label>
-                  <input
-                    type="text"
-                    value={tokenId}
-                    onChange={(e) => setTokenId(e.target.value)}
-                    placeholder="0"
-                    className="jupiter-input"
-                  />
-                </div>
-              </>
-            )}
+
 
             {/* Send Button */}
                 <div className="flex gap-3 mt-6">

@@ -66,7 +66,7 @@ class TransactionMonitor {
     // Start monitoring interval
     this.monitoringInterval = setInterval(() => {
       this.checkMonitoredTransactions();
-    }, 3000); // Check every 3 seconds
+    }, 30000); // Check every 30 seconds to reduce API calls
 
     console.log(`Started monitoring transactions for address: ${address} on network: ${network}`);
   }

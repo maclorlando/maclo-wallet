@@ -23,7 +23,6 @@ import {
   RecoverWalletModal,
   AddTokenModal,
   AddNFTModal,
-  MintNFTModal,
   ViewMnemonicModal
 } from '@/components/modals';
 import AccountManager from '@/components/AccountManager';
@@ -83,7 +82,7 @@ export default function Home() {
   const [showRecoverWallet, setShowRecoverWallet] = useState(false);
   const [showAddToken, setShowAddToken] = useState(false);
   const [showAddNFT, setShowAddNFT] = useState(false);
-  const [showMintNFT, setShowMintNFT] = useState(false);
+
   const [showSendTransaction, setShowSendTransaction] = useState(false);
   const [preSelectedToken, setPreSelectedToken] = useState<{
     symbol: string;
@@ -1045,7 +1044,7 @@ export default function Home() {
           <NFTCollections 
             onAddNFT={() => setShowAddNFT(true)}
             onSendNFT={handleSendNFT}
-            onMintNFT={() => setShowMintNFT(true)}
+
           />
         </div>
       </div>
@@ -1080,10 +1079,7 @@ export default function Home() {
          loading={false}
        />
 
-       <MintNFTModal
-         isOpen={showMintNFT}
-         onClose={() => setShowMintNFT(false)}
-       />
+
 
              {/* Send Transaction Component */}
        <SendTransaction 

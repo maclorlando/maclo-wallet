@@ -13,6 +13,7 @@ export interface BalanceChangeEvent {
   tokenAddress?: string;
   tokenSymbol?: string;
   tokenName?: string;
+  tokenDecimals?: number;
   oldBalance: string;
   newBalance: string;
   timestamp: number;
@@ -38,6 +39,16 @@ class BalanceMonitor {
   private tokenMetadata: Map<string, TokenMetadata> = new Map();
   private recentChangeDetected: boolean = false;
   private isInitialLoad: boolean = true; // Track if this is the initial load
+  
+  // Common token decimal mappings for better accuracy
+  private readonly commonTokenDecimals: Record<string, number> = {
+    // USDC has 6 decimals
+    '0xa0b86a33e6441b8c4c8c8c8c8c8c8c8c8c8c8c8c': 6, // USDC on Base Sepolia
+    '0x036c5230f9b0a4b0b0c0e0a4b0b0c0e0a4b0b0c0e': 6, // USDC on ETH Sepolia
+    // USDT has 6 decimals
+    '0xdac17f958d2ee523a2206206994597c13d831ec7': 6, // USDT on Ethereum
+    // Most other ERC20 tokens have 18 decimals
+  };
 
   // Initialize provider for a network - we'll use fetch directly instead
   private async makeRPCRequest(network: string, method: string, params: unknown[] = []): Promise<string> {
@@ -85,12 +96,15 @@ class BalanceMonitor {
 
     // Get initial balances and start monitoring
     this.getCurrentBalances(address, network, _rpcUrl).then(() => {
+      // Reset initial load flag after first balance check
+      this.isInitialLoad = false;
+      
       // Start monitoring interval after initial balances are loaded
-      this.monitoringInterval = setInterval(() => {
-        if (this.currentAddress && this.currentNetwork) {
-          this.checkBalanceChanges();
-        }
-      }, 15000); // Check every 15 seconds to reduce API calls
+          this.monitoringInterval = setInterval(() => {
+      if (this.currentAddress && this.currentNetwork) {
+        this.checkBalanceChanges();
+      }
+    }, 15000); // Check every 15 seconds for better responsiveness
 
       // Start fast monitoring for recent changes
       this.startFastMonitoring();
@@ -131,9 +145,9 @@ class BalanceMonitor {
         // Reset the flag after some time
         setTimeout(() => {
           this.recentChangeDetected = false;
-        }, 30000); // Stop fast monitoring after 30 seconds
+        }, 15000); // Stop fast monitoring after 15 seconds
       }
-    }, 2000); // Check every 2 seconds when changes are recent to reduce API calls
+    }, 3000); // Check every 3 seconds when changes are recent for better responsiveness
   }
 
   // Get current balances
@@ -175,22 +189,30 @@ class BalanceMonitor {
             balance = BigInt(balanceHex);
           }
           
-                     // Get decimals using proxy
-           let decimals = 18;
-           try {
-             const decimalsHex = await this.makeRPCRequest(network, 'eth_call', [{
-               to: tokenAddress,
-               data: '0x313ce567' // decimals()
-             }, 'latest']);
-             const parsedDecimals = parseInt(decimalsHex, 16);
-             // Validate that we got a valid number
-             if (!isNaN(parsedDecimals) && parsedDecimals >= 0 && parsedDecimals <= 255) {
-               decimals = parsedDecimals;
-             }
-           } catch (decimalsError: unknown) {
-             const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
-             console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
-           }
+                               // Get decimals using proxy
+          let decimals = 18;
+          
+          // Check if we have a known decimal count for this token
+          const normalizedTokenAddress = tokenAddress.toLowerCase();
+          if (this.commonTokenDecimals[normalizedTokenAddress]) {
+            decimals = this.commonTokenDecimals[normalizedTokenAddress];
+            console.log(`🔍 Using known decimals for token ${tokenAddress}: ${decimals}`);
+          } else {
+            try {
+              const decimalsHex = await this.makeRPCRequest(network, 'eth_call', [{
+                to: tokenAddress,
+                data: '0x313ce567' // decimals()
+              }, 'latest']);
+              const parsedDecimals = parseInt(decimalsHex, 16);
+              // Validate that we got a valid number
+              if (!isNaN(parsedDecimals) && parsedDecimals >= 0 && parsedDecimals <= 255) {
+                decimals = parsedDecimals;
+              }
+            } catch (decimalsError: unknown) {
+              const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
+              console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
+            }
+          }
           
           // Get symbol using proxy
           let symbol = 'Unknown';
@@ -335,22 +357,30 @@ class BalanceMonitor {
             balance = BigInt(balanceHex);
           }
           
-                     // Get decimals using proxy
-           let decimals = 18;
-           try {
-             const decimalsHex = await this.makeRPCRequest(this.currentNetwork, 'eth_call', [{
-               to: tokenAddress,
-               data: '0x313ce567' // decimals()
-             }, 'latest']);
-             const parsedDecimals = parseInt(decimalsHex, 16);
-             // Validate that we got a valid number
-             if (!isNaN(parsedDecimals) && parsedDecimals >= 0 && parsedDecimals <= 255) {
-               decimals = parsedDecimals;
-             }
-           } catch (decimalsError: unknown) {
-             const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
-             console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
-           }
+                               // Get decimals using proxy
+          let decimals = 18;
+          
+          // Check if we have a known decimal count for this token
+          const normalizedTokenAddress = tokenAddress.toLowerCase();
+          if (this.commonTokenDecimals[normalizedTokenAddress]) {
+            decimals = this.commonTokenDecimals[normalizedTokenAddress];
+            console.log(`🔍 Using known decimals for token ${tokenAddress}: ${decimals}`);
+          } else {
+            try {
+              const decimalsHex = await this.makeRPCRequest(this.currentNetwork, 'eth_call', [{
+                to: tokenAddress,
+                data: '0x313ce567' // decimals()
+              }, 'latest']);
+              const parsedDecimals = parseInt(decimalsHex, 16);
+              // Validate that we got a valid number
+              if (!isNaN(parsedDecimals) && parsedDecimals >= 0 && parsedDecimals <= 255) {
+                decimals = parsedDecimals;
+              }
+            } catch (decimalsError: unknown) {
+              const errorMessage = decimalsError instanceof Error ? decimalsError.message : 'Unknown error';
+              console.debug(`Using default decimals (18) for token ${tokenAddress}:`, errorMessage);
+            }
+          }
           
           const newTokenBalance = ethers.formatUnits(balance, decimals);
           const oldTokenBalance = currentBalanceInfo.tokenBalances.get(tokenAddress) || '0';
@@ -365,6 +395,7 @@ class BalanceMonitor {
                 tokenAddress,
                 tokenSymbol: tokenMeta?.symbol || 'Unknown',
                 tokenName: tokenMeta?.name || 'Unknown Token',
+                tokenDecimals: decimals,
                 oldBalance: oldTokenBalance,
                 newBalance: newTokenBalance,
                 timestamp: Date.now()

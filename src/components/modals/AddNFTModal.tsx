@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import { Modal } from '@/components/ui';
 import { NFTInfo } from '@/lib/walletManager';
 import { useToast } from '@/hooks/useToast';
+import { useWallet } from '@/lib/walletContext';
+import { getERC721Owner } from '@/lib/walletUtils';
+import { ethers } from 'ethers';
 
 interface AddNFTModalProps {
   open: boolean;
@@ -21,6 +24,7 @@ interface NFTMetadata {
 
 export default function AddNFTModal({ open, onOpenChange, onAdd, loading = false }: AddNFTModalProps) {
   const { toast } = useToast();
+  const { currentWallet, currentNetworkConfig, currentNetwork } = useWallet();
   const [formData, setFormData] = useState({
     address: '',
     tokenId: '',
@@ -29,8 +33,9 @@ export default function AddNFTModal({ open, onOpenChange, onAdd, loading = false
     imageUrl: ''
   });
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false);
+  const [isValidatingOwnership, setIsValidatingOwnership] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.address || !formData.tokenId || !formData.name || !formData.symbol) {
@@ -42,16 +47,61 @@ export default function AddNFTModal({ open, onOpenChange, onAdd, loading = false
       return;
     }
 
-    const nftInfo: NFTInfo = {
-      address: formData.address,
-      tokenId: formData.tokenId,
-      name: formData.name,
-      symbol: formData.symbol,
-      imageUrl: formData.imageUrl || undefined
-    };
+    // Validate ownership before adding
+    if (!currentWallet || !currentNetworkConfig) {
+      toast({
+        variant: 'error',
+        title: 'Error',
+        description: 'Wallet not connected',
+      });
+      return;
+    }
 
-    onAdd(nftInfo);
-    resetForm();
+    setIsValidatingOwnership(true);
+    try {
+      const config = {
+        privateKey: currentWallet.privateKey,
+        chainId: currentNetworkConfig.chainId,
+        network: currentNetwork
+      };
+
+      const owner = await getERC721Owner(config, formData.address, formData.tokenId);
+      
+      if (owner.toLowerCase() !== currentWallet.address.toLowerCase()) {
+        toast({
+          variant: 'error',
+          title: 'Ownership Error',
+          description: `You don't own this NFT. It belongs to ${owner}`,
+        });
+        return;
+      }
+
+      const nftInfo: NFTInfo = {
+        address: formData.address,
+        tokenId: formData.tokenId,
+        name: formData.name,
+        symbol: formData.symbol,
+        imageUrl: formData.imageUrl || undefined
+      };
+
+      onAdd(nftInfo);
+      resetForm();
+      
+      toast({
+        variant: 'success',
+        title: 'NFT Added',
+        description: 'NFT has been successfully added to your wallet',
+      });
+    } catch (error) {
+      console.error('Error validating NFT ownership:', error);
+      toast({
+        variant: 'error',
+        title: 'Error',
+        description: 'Failed to validate NFT ownership. Please check the contract address and token ID.',
+      });
+    } finally {
+      setIsValidatingOwnership(false);
+    }
   };
 
   const resetForm = () => {
@@ -100,13 +150,90 @@ export default function AddNFTModal({ open, onOpenChange, onAdd, loading = false
 
   const fetchNFTMetadataFromContract = async (): Promise<NFTMetadata | null> => {
     try {
-      // This is a simplified version - in a real implementation, you'd need to:
-      // 1. Call tokenURI() on the contract to get the metadata URI
-      // 2. Fetch the metadata from that URI
-      // 3. Parse the metadata to get name, symbol, image, etc.
-      
-      // For now, we'll return null to indicate manual input is needed
-      return null;
+      if (!formData.address || !formData.tokenId || !currentNetworkConfig) {
+        return null;
+      }
+
+      // Get token name
+      const nameResponse = await fetch('/api/rpc-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          network: currentNetwork,
+          method: 'eth_call',
+          params: [{
+            to: formData.address,
+            data: '0x06fdde03' // name()
+          }, 'latest']
+        })
+      });
+
+      let name = 'Unknown Collection';
+      if (nameResponse.ok) {
+        const nameData = await nameResponse.json();
+        if (nameData.result) {
+          name = ethers.AbiCoder.defaultAbiCoder().decode(['string'], nameData.result)[0];
+        }
+      }
+
+      // Get token symbol
+      const symbolResponse = await fetch('/api/rpc-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          network: currentNetwork,
+          method: 'eth_call',
+          params: [{
+            to: formData.address,
+            data: '0x95d89b41' // symbol()
+          }, 'latest']
+        })
+      });
+
+      let symbol = 'NFT';
+      if (symbolResponse.ok) {
+        const symbolData = await symbolResponse.json();
+        if (symbolData.result) {
+          symbol = ethers.AbiCoder.defaultAbiCoder().decode(['string'], symbolData.result)[0];
+        }
+      }
+
+      // Try to get token URI and metadata
+      const tokenURIResponse = await fetch('/api/rpc-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          network: currentNetwork,
+          method: 'eth_call',
+          params: [{
+            to: formData.address,
+            data: '0xc87b56dd' + BigInt(formData.tokenId).toString(16).padStart(64, '0') // tokenURI(uint256)
+          }, 'latest']
+        })
+      });
+
+      let imageUrl: string | undefined;
+      if (tokenURIResponse.ok) {
+        const tokenURIData = await tokenURIResponse.json();
+        if (tokenURIData.result) {
+          const tokenURI = ethers.AbiCoder.defaultAbiCoder().decode(['string'], tokenURIData.result)[0];
+          
+          // Fetch metadata from the URI
+          const metadataResponse = await fetch(tokenURI);
+          if (metadataResponse.ok) {
+            const metadata = await metadataResponse.json();
+            if (metadata.image) {
+              imageUrl = metadata.image;
+            }
+          }
+        }
+      }
+
+      return {
+        name,
+        symbol,
+        image: imageUrl
+      };
     } catch (error) {
       console.error('Error fetching NFT metadata from contract:', error);
       return null;
@@ -214,9 +341,9 @@ export default function AddNFTModal({ open, onOpenChange, onAdd, loading = false
               <button
                 type="submit"
                 className="jupiter-btn jupiter-btn-primary"
-                disabled={loading}
+                disabled={loading || isValidatingOwnership}
               >
-                {loading ? 'Adding...' : 'Add NFT'}
+                {isValidatingOwnership ? 'Validating Ownership...' : (loading ? 'Adding...' : 'Add NFT')}
               </button>
             </div>
           </div>

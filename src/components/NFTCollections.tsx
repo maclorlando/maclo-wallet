@@ -4,14 +4,13 @@ import React, { useState, useMemo } from 'react';
 import { useWallet } from '@/lib/walletContext';
 import { NFTInfo } from '@/lib/walletManager';
 import SafeImage from '@/components/SafeImage';
-import { Pin, Send, Trash2, Plus, Sparkles } from 'lucide-react';
+import { Pin, Send, Trash2, Plus, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import { Button, ConfirmationModal } from '@/components/ui';
 
 interface NFTCollectionsProps {
   onAddNFT: () => void;
   onSendNFT: (nft: NFTInfo) => void;
-  onMintNFT: () => void;
 }
 
 interface Collection {
@@ -22,8 +21,8 @@ interface Collection {
   pinnedNFTs: NFTInfo[];
 }
 
-export default function NFTCollections({ onAddNFT, onSendNFT, onMintNFT }: NFTCollectionsProps) {
-  const { customNFTs, removeNFT } = useWallet();
+export default function NFTCollections({ onAddNFT, onSendNFT }: NFTCollectionsProps) {
+  const { customNFTs, removeNFT, refreshNFTs, currentWallet } = useWallet();
   const { toast } = useToast();
   const [pinnedNFTs, setPinnedNFTs] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<{ nft: NFTInfo | null }>({ nft: null });
@@ -32,7 +31,16 @@ export default function NFTCollections({ onAddNFT, onSendNFT, onMintNFT }: NFTCo
   const collections = useMemo(() => {
     const collectionMap = new Map<string, Collection>();
     
+    // Create a Map to track unique NFTs by address-tokenId combination
+    const uniqueNFTs = new Map<string, NFTInfo>();
+    
     customNFTs.forEach(nft => {
+      const uniqueKey = `${nft.address.toLowerCase()}-${nft.tokenId}`;
+      uniqueNFTs.set(uniqueKey, nft);
+    });
+    
+    // Process unique NFTs
+    uniqueNFTs.forEach(nft => {
       const key = nft.address.toLowerCase();
       const isPinned = pinnedNFTs.has(`${nft.address}-${nft.tokenId}`);
       
@@ -98,6 +106,53 @@ export default function NFTCollections({ onAddNFT, onSendNFT, onMintNFT }: NFTCo
     }
   };
 
+  const handleRefreshNFTs = async () => {
+    try {
+      toast({
+        variant: 'info',
+        title: 'Refreshing NFTs',
+        description: 'Scanning for owned NFTs using Alchemy API...',
+      });
+      
+      // First trigger manual NFT detection to catch any missed transfers
+      if (typeof window !== 'undefined' && currentWallet?.address) {
+        window.dispatchEvent(new CustomEvent('triggerBlockchainEventCheck', {
+          detail: {
+            address: currentWallet.address,
+            network: 'base-sepolia', // This will be updated by the context
+            type: 'NFT'
+          }
+        }));
+      }
+      
+      await refreshNFTs();
+      
+      // Get updated NFT count
+      const updatedNFTs = customNFTs;
+      
+      if (updatedNFTs.length === 0) {
+        toast({
+          variant: 'info',
+          title: 'No NFTs Found',
+          description: 'No NFTs were found in your wallet. You can manually add NFTs using the "Add NFT" button.',
+        });
+      } else {
+        toast({
+          variant: 'success',
+          title: 'NFTs Refreshed',
+          description: `Found ${updatedNFTs.length} NFTs in your wallet`,
+        });
+      }
+    } catch (error) {
+      console.error('Error refreshing NFTs:', error);
+      toast({
+        variant: 'error',
+        title: 'Refresh Failed',
+        description: 'Failed to refresh NFT collection. Please try again.',
+      });
+    }
+  };
+
   if (customNFTs.length === 0) {
     return (
       <div className="jupiter-section">
@@ -113,11 +168,11 @@ export default function NFTCollections({ onAddNFT, onSendNFT, onMintNFT }: NFTCo
             You haven&apos;t added any NFTs to your wallet yet.
           </p>
           <div className="flex space-x-2">
-            <Button onClick={onMintNFT} className="jupiter-btn jupiter-btn-primary">
-              <Sparkles className="h-4 w-4 mr-2" />
-              Mint Test NFT
+            <Button onClick={handleRefreshNFTs} className="jupiter-btn jupiter-btn-secondary">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
             </Button>
-            <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-secondary">
+            <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-primary">
               <Plus className="h-4 w-4 mr-2" />
               Add NFT
             </Button>
@@ -133,11 +188,11 @@ export default function NFTCollections({ onAddNFT, onSendNFT, onMintNFT }: NFTCo
         <h3 className="jupiter-section-title">NFT Collections</h3>
         <p className="jupiter-section-subtitle">Your NFT holdings</p>
         <div className="flex space-x-2">
-          <Button onClick={onMintNFT} className="jupiter-btn jupiter-btn-primary">
-            <Sparkles className="h-4 w-4 mr-2" />
-            Mint Test NFT
+          <Button onClick={handleRefreshNFTs} className="jupiter-btn jupiter-btn-secondary">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
           </Button>
-          <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-secondary">
+          <Button onClick={onAddNFT} className="jupiter-btn jupiter-btn-primary">
             <Plus className="h-4 w-4 mr-2" />
             Add NFT
           </Button>

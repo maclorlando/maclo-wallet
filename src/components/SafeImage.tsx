@@ -72,24 +72,30 @@ export default function SafeImage({
     );
   }
 
+  // Handle IPFS URLs and other special cases
+  const processedSrc = src?.startsWith('ipfs://') 
+    ? src.replace('ipfs://', 'https://ipfs.io/ipfs/')
+    : src;
+
   return (
     <div className={`relative ${className}`} style={{ width, height }}>
       {isLoading && (
         <div 
-          className="absolute inset-0 flex items-center justify-center rounded-full bg-gradient-to-r from-gray-600 to-gray-700 animate-pulse"
+          className="absolute inset-0 flex items-center justify-center rounded-lg bg-gradient-to-r from-gray-600 to-gray-700 animate-pulse"
           style={{ width, height }}
         >
           <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
         </div>
       )}
       <Image
-        src={src}
+        src={processedSrc || ''}
         alt={alt}
         width={width}
         height={height}
-        className={`rounded-full object-cover ${isLoading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
+        className={`rounded-lg object-cover ${isLoading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
         onError={handleError}
         onLoad={handleLoad}
+        unoptimized={src?.includes('ipfs') || src?.includes('w3s.link') || src?.includes('dweb.link')}
       />
     </div>
   );

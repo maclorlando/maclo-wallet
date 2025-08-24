@@ -8,6 +8,7 @@ export interface TransactionEvent {
   to: string;
   txHash: string;
   timestamp: number;
+  contractAddress?: string; // For NFT transfers
 }
 
 export interface BalanceUpdateEvent {
@@ -27,6 +28,17 @@ class BlockchainEventService {
   private isListening: boolean = false;
   private currentAddress: string | null = null;
   private currentNetwork: string | null = null;
+  private monitoringInterval: NodeJS.Timeout | null = null;
+  
+  // Common token decimal mappings for better accuracy
+  private readonly commonTokenDecimals: Record<string, number> = {
+    // USDC has 6 decimals
+    '0xa0b86a33e6441b8c4c8c8c8c8c8c8c8c8c8c8c8c': 6, // USDC on Base Sepolia
+    '0x036c5230f9b0a4b0b0c0e0a4b0b0c0e0a4b0b0c0e': 6, // USDC on ETH Sepolia
+    // USDT has 6 decimals
+    '0xdac17f958d2ee523a2206206994597c13d831ec7': 6, // USDT on Ethereum
+    // Most other ERC20 tokens have 18 decimals
+  };
 
   // Initialize provider for a network - we'll use fetch directly instead
   private async makeRPCRequest(network: string, method: string, params: unknown[] = []): Promise<unknown> {
@@ -61,14 +73,14 @@ class BlockchainEventService {
     this.isListening = true;
 
     // Use polling instead of WebSocket events to work with our proxy
-    // Check for new blocks every 30 seconds
-    setInterval(async () => {
+    // Check for new blocks every 5 seconds for faster NFT detection
+    this.monitoringInterval = setInterval(async () => {
       try {
         await this.checkForNewBlocks(address);
       } catch (error) {
         console.error('Error checking for new blocks:', error);
       }
-    }, 30000); // Check every 30 seconds
+    }, 5000); // Check every 5 seconds for faster NFT detection
 
     console.log(`Started listening for events on address: ${address} on network: ${network}`);
   }
@@ -76,6 +88,12 @@ class BlockchainEventService {
   // Stop listening for events
   public stopListening() {
     if (!this.isListening) return;
+
+    // Clear the monitoring interval
+    if (this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+      this.monitoringInterval = null;
+    }
 
     this.providers.forEach(provider => {
       provider.removeAllListeners();
@@ -92,19 +110,33 @@ class BlockchainEventService {
     try {
       // Get the latest block number
       const latestBlockHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_blockNumber', []) as string;
-      const _latestBlockNumber = parseInt(latestBlockHex, 16);
+      const latestBlockNumber = parseInt(latestBlockHex, 16);
       
-      // Get the block details
-      const block = await this.makeRPCRequest(this.currentNetwork!, 'eth_getBlockByNumber', [latestBlockHex, true]) as { transactions?: unknown[] };
-      if (!block || !block.transactions) return;
+      // Check the last 5 blocks to catch transactions that might have been missed
+      const startBlock = Math.max(0, latestBlockNumber - 4);
+      
+      console.log(`🔍 Checking blocks ${startBlock} to ${latestBlockNumber} for address ${address}`);
+      
+      for (let blockNumber = startBlock; blockNumber <= latestBlockNumber; blockNumber++) {
+        const blockHex = '0x' + blockNumber.toString(16);
+        const block = await this.makeRPCRequest(this.currentNetwork!, 'eth_getBlockByNumber', [blockHex, true]) as { transactions?: unknown[] };
+        if (!block || !block.transactions) continue;
 
-      for (const tx of block.transactions) {
-        // Check if this transaction involves our address
-        const transaction = tx as { from?: string; to?: string };
-        if (transaction.from?.toLowerCase() === address.toLowerCase() || 
-            transaction.to?.toLowerCase() === address.toLowerCase()) {
-          
-          await this.processTransactionFromBlock(tx as { hash: string; to?: string; from?: string; input?: string }, address);
+        console.log(`📦 Block ${blockNumber} has ${block.transactions.length} transactions`);
+
+        for (const tx of block.transactions) {
+          // Check if this transaction involves our address
+          const transaction = tx as { from?: string; to?: string; hash?: string; input?: string };
+          if (transaction.from?.toLowerCase() === address.toLowerCase() || 
+              transaction.to?.toLowerCase() === address.toLowerCase()) {
+            
+            console.log(`🔍 Found transaction involving our address: ${transaction.hash || 'unknown'}`);
+            console.log(`📤 From: ${transaction.from}`);
+            console.log(`📥 To: ${transaction.to}`);
+            console.log(`📋 Input data: ${transaction.input?.substring(0, 10)}...`);
+            
+            await this.processTransactionFromBlock(tx as { hash: string; to?: string; from?: string; input?: string }, address);
+          }
         }
       }
     } catch (error) {
@@ -258,15 +290,33 @@ class BlockchainEventService {
       const data = tx.data;
       const toAddress = '0x' + data.slice(34, 74); // Extract 'to' address
       const amountHex = data.slice(74); // Extract amount
-      const amount = ethers.formatUnits(amountHex, 18); // Assume 18 decimals for now
 
-      // Get token symbol
+      // Get token symbol and decimals
       let symbol = 'Unknown';
+      let decimals = 18; // Default to 18 decimals
+      
+      // Check if we have a known decimal count for this token
+      const normalizedTokenAddress = tokenAddress.toLowerCase();
+      if (this.commonTokenDecimals[normalizedTokenAddress]) {
+        decimals = this.commonTokenDecimals[normalizedTokenAddress];
+        console.log(`🔍 Using known decimals for token: ${decimals}`);
+      }
+      
       try {
         symbol = await tokenContract.symbol();
+        
+        // Get token decimals (only if we don't have a known value)
+        if (!this.commonTokenDecimals[normalizedTokenAddress]) {
+          decimals = await tokenContract.decimals();
+        }
+        
+        console.log(`🔍 Token ${symbol} has ${decimals} decimals`);
       } catch (error) {
-        console.warn('Could not get token symbol:', error);
+        console.warn('Could not get token symbol or decimals:', error);
       }
+
+      // Format amount with correct decimals
+      const amount = ethers.formatUnits(amountHex, decimals);
 
       // Emit transaction event
       const event: TransactionEvent = {
@@ -325,7 +375,8 @@ class BlockchainEventService {
         from: fromAddress,
         to: toAddress,
         txHash: tx.hash,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        contractAddress: tokenAddress
       };
 
       this.emitTransactionEvent(event);
@@ -367,13 +418,19 @@ class BlockchainEventService {
       // Parse transaction data to determine token type and amount
       const data = tx.input || '0x';
       
+      console.log(`🔍 Processing token transfer with data: ${data.substring(0, 10)}...`);
+      
       // ERC20 transfer: 0xa9059cbb (transfer function)
       if (data.startsWith('0xa9059cbb')) {
+        console.log(`🪙 Detected ERC20 transfer`);
         await this.processERC20TransferFromBlock(tx, address, isIncoming);
       }
       // ERC721 transfer: 0x23b872dd (transferFrom function)
       else if (data.startsWith('0x23b872dd')) {
+        console.log(`🖼️ Detected ERC721 transfer`);
         await this.processERC721TransferFromBlock(tx, address, isIncoming);
+      } else {
+        console.log(`❓ Unknown token transfer type`);
       }
     } catch (error) {
       console.error('Error processing token transfer from block:', error);
@@ -393,19 +450,42 @@ class BlockchainEventService {
       const data = tx.input || '0x';
       const toAddress = '0x' + data.slice(34, 74); // Extract 'to' address
       const amountHex = data.slice(74); // Extract amount
-      const amount = ethers.formatUnits('0x' + amountHex, 18); // Assume 18 decimals for now
 
-      // Get token symbol using proxy
+      // Get token symbol and decimals using proxy
       let symbol = 'Unknown';
+      let decimals = 18; // Default to 18 decimals
+      
+      // Check if we have a known decimal count for this token
+      const normalizedTokenAddress = tokenAddress.toLowerCase();
+      if (this.commonTokenDecimals[normalizedTokenAddress]) {
+        decimals = this.commonTokenDecimals[normalizedTokenAddress];
+        console.log(`🔍 Using known decimals for token: ${decimals}`);
+      }
+      
       try {
+        // Get token symbol
         const symbolHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_call', [{
           to: tokenAddress,
           data: '0x95d89b41' // symbol()
         }, 'latest']) as string;
         symbol = ethers.AbiCoder.defaultAbiCoder().decode(['string'], symbolHex)[0];
+        
+        // Get token decimals (only if we don't have a known value)
+        if (!this.commonTokenDecimals[normalizedTokenAddress]) {
+          const decimalsHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_call', [{
+            to: tokenAddress,
+            data: '0x313ce567' // decimals()
+          }, 'latest']) as string;
+          decimals = ethers.AbiCoder.defaultAbiCoder().decode(['uint8'], decimalsHex)[0];
+        }
+        
+        console.log(`🔍 Token ${symbol} has ${decimals} decimals`);
       } catch (error) {
-        console.warn('Could not get token symbol:', error);
+        console.warn('Could not get token symbol or decimals:', error);
       }
+
+      // Format amount with correct decimals
+      const amount = ethers.formatUnits('0x' + amountHex, decimals);
 
       // Emit transaction event
       const event: TransactionEvent = {
@@ -452,6 +532,12 @@ class BlockchainEventService {
         console.warn('Could not get NFT symbol:', error);
       }
 
+      console.log(`🔍 Processing NFT transfer: ${symbol} #${tokenId} from ${fromAddress} to ${toAddress}`);
+      console.log(`📥 Is incoming to our address: ${isIncoming}`);
+      console.log(`👤 Our address: ${address}`);
+      console.log(`🔗 Transaction hash: ${tx.hash}`);
+      console.log(`📋 Contract address: ${tokenAddress}`);
+
       // Emit transaction event
       const event: TransactionEvent = {
         type: isIncoming ? 'received' : 'sent',
@@ -460,10 +546,37 @@ class BlockchainEventService {
         from: fromAddress,
         to: toAddress,
         txHash: tx.hash,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        contractAddress: tokenAddress
       };
 
+      console.log(`Emitting NFT transaction event:`, event);
       this.emitTransactionEvent(event);
+      
+            // Trigger NFT refresh for the affected address (only once)
+      if (isIncoming) {
+        console.log(`Incoming NFT detected: ${symbol} #${tokenId} from ${fromAddress} to ${toAddress}`);
+        // Dispatch custom event to trigger NFT refresh immediately
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('triggerNFTRefresh', {
+            detail: {
+              address: address,
+              contractAddress: tokenAddress
+            }
+          }));
+        }
+      } else {
+        console.log(`Outgoing NFT detected: ${symbol} #${tokenId} from ${fromAddress} to ${toAddress}`);
+        // For outgoing NFTs, also trigger refresh to remove from widget immediately
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('triggerNFTRefresh', {
+            detail: {
+              address: address,
+              contractAddress: tokenAddress
+            }
+          }));
+        }
+      }
     } catch (error) {
       console.error('Error processing ERC721 transfer from block:', error);
     }
@@ -548,6 +661,111 @@ class BlockchainEventService {
   // Manually trigger a balance check
   public async triggerBalanceCheck(address: string) {
     this.emitBalanceUpdate(address);
+  }
+
+  // Manually trigger a transaction check for immediate NFT detection
+  public async triggerTransactionCheck(address: string) {
+    if (this.currentAddress === address && this.isListening) {
+      try {
+        console.log(`🔍 Manual transaction check triggered for address: ${address}`);
+        await this.checkForNewBlocks(address);
+      } catch (error) {
+        console.error('Error in manual transaction check:', error);
+      }
+    }
+  }
+
+  // Manually trigger NFT detection for a specific address
+  public async triggerNFTDetection(address: string) {
+    if (this.currentAddress === address && this.isListening) {
+      try {
+        console.log(`🖼️ Manual NFT detection triggered for address: ${address}`);
+        await this.checkForNFTTransfers(address);
+      } catch (error) {
+        console.error('Error in manual NFT detection:', error);
+      }
+    }
+  }
+
+  // Enhanced NFT transfer detection
+  public async checkForNFTTransfers(address: string, fromBlock?: number, toBlock?: number) {
+    try {
+      // Get the latest block if not specified
+      if (!toBlock) {
+        const latestBlockHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_blockNumber', []) as string;
+        toBlock = parseInt(latestBlockHex, 16);
+      }
+      
+             if (!fromBlock) {
+         fromBlock = Math.max(0, toBlock - 10); // Check last 10 blocks for faster detection
+       }
+
+      console.log(`Checking for NFT transfers from block ${fromBlock} to ${toBlock} for address ${address}`);
+
+      // Check each block for NFT transfers
+      for (let blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
+        const blockHex = '0x' + blockNumber.toString(16);
+        const block = await this.makeRPCRequest(this.currentNetwork!, 'eth_getBlockByNumber', [blockHex, true]) as { transactions?: unknown[] };
+        
+        if (!block || !block.transactions) continue;
+
+        for (const tx of block.transactions) {
+          const transaction = tx as { hash: string; from?: string; to?: string; input?: string };
+          
+          // Check if this transaction involves our address and has NFT transfer data
+          if ((transaction.from?.toLowerCase() === address.toLowerCase() || 
+               transaction.to?.toLowerCase() === address.toLowerCase()) &&
+              transaction.input && 
+              transaction.input.startsWith('0x23b872dd')) { // ERC721 transferFrom
+            
+            console.log(`Found NFT transfer transaction: ${transaction.hash}`);
+            await this.processTransactionFromBlock(transaction, address);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking for NFT transfers:', error);
+    }
+  }
+
+  // Scan for all NFT contracts that the user owns tokens from
+  public async scanForOwnedNFTContracts(address: string): Promise<string[]> {
+    try {
+      const contractAddresses = new Set<string>();
+      
+      // Get the latest block
+      const latestBlockHex = await this.makeRPCRequest(this.currentNetwork!, 'eth_blockNumber', []) as string;
+      const latestBlock = parseInt(latestBlockHex, 16);
+      
+      // Check the last 100 blocks for NFT transfers involving this address
+      const fromBlock = Math.max(0, latestBlock - 100);
+      
+      for (let blockNumber = fromBlock; blockNumber <= latestBlock; blockNumber++) {
+        const blockHex = '0x' + blockNumber.toString(16);
+        const block = await this.makeRPCRequest(this.currentNetwork!, 'eth_getBlockByNumber', [blockHex, true]) as { transactions?: unknown[] };
+        
+        if (!block || !block.transactions) continue;
+
+        for (const tx of block.transactions) {
+          const transaction = tx as { hash: string; from?: string; to?: string; input?: string };
+          
+          // Check if this transaction involves our address and has NFT transfer data
+          if ((transaction.from?.toLowerCase() === address.toLowerCase() || 
+               transaction.to?.toLowerCase() === address.toLowerCase()) &&
+              transaction.input && 
+              transaction.input.startsWith('0x23b872dd') && // ERC721 transferFrom
+              transaction.to) {
+            
+            contractAddresses.add(transaction.to.toLowerCase());
+          }
+        }
+      }
+      
+      return Array.from(contractAddresses);
+    } catch (error) {
+      console.error('Error scanning for owned NFT contracts:', error);
+      return [];
+    }
   }
 }
 
